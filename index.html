@@ -184,6 +184,13 @@ select,input[type=number]{
 .thumb.dropbefore::before{top:-5px}
 .thumb.dropafter::after{bottom:-5px}
 .thumb.grabbed{opacity:.45}
+.thumbs:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.modal .card.wide{width:min(560px,calc(100vw - 32px));max-height:80vh;overflow:auto}
+.modal table{border-collapse:collapse;width:100%;font-size:12.5px;margin:2px 0 10px}
+.modal table th{text-align:left;color:var(--ink-2);font-weight:500;padding:3px 8px 3px 0;white-space:nowrap;vertical-align:top}
+.modal table td{padding:3px 0;color:var(--ink)}
+.modal h4{font-size:12.5px;margin:14px 0 4px;color:var(--ink-2)}
+.modal .card.wide a{color:var(--accent)}
 #findBox input{
   font:inherit;font-size:12.5px;width:120px;padding:3px 6px;
   border:1px solid var(--line);border-radius:var(--r);background:var(--surface);color:var(--ink);
@@ -324,6 +331,7 @@ select,input[type=number]{
       <button class="btn icon" id="findNext" aria-label="次の一致" title="次の一致 (Enter)">›</button>
     </div>
     <div class="spacer"></div>
+    <button class="btn icon" id="btnHelp" title="使い方とショートカット (?)" aria-label="使い方とショートカット">?</button>
     <button class="btn primary" id="btnExport"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg>PDFを書き出す</button>
   </div>
 
@@ -358,7 +366,7 @@ select,input[type=number]{
         <button class="btn icon" id="opBlank" title="白紙を後ろに追加" aria-label="白紙を追加"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h9l5 5v11H5z"/><path d="M12 11v6M9 14h6"/></svg></button>
         <button class="btn icon" id="opDel" title="削除" aria-label="削除" style="color:var(--danger)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13"/></svg></button>
       </div>
-      <div class="thumbs" id="thumbs"></div>
+      <div class="thumbs" id="thumbs" role="listbox" aria-label="ページ一覧" aria-multiselectable="true" tabindex="0"></div>
     </aside>
 
     <div class="stage" id="stage">
@@ -367,6 +375,7 @@ select,input[type=number]{
         <div class="drop">
           <div style="font-size:15px;font-weight:700;margin-bottom:6px">PDFをここにドロップ</div>
           <div style="font-size:12px;opacity:.85">または「開く」から選んでください。ファイルはこの端末の中だけで処理され、どこにも送信されません。</div>
+          <div style="margin-top:14px"><button class="btn" id="btnSample" type="button">サンプルで試す</button></div>
         </div>
       </div>
     </div>
@@ -405,6 +414,7 @@ var S = {
   uid: 0, docSeq: 0,
   editing: null,
   find: {q:"", hits:[], idx:-1},
+  fitWidth: false,  // 「幅に合わせる」で見ているか
   unsaved: false,   // 自動保存が追いついていないか
   noSave: false     // サンプル読み込み中は保存しない
 };
@@ -457,11 +467,25 @@ function snapshot(){
       pw:p.pw,ph:p.ph,vx0:p.vx0,vy0:p.vy0,vy1:p.vy1,irot:p.irot,blank:p.blank};
   }));
 }
+/* 元に戻す履歴は1件ごとに全ページ分の状態を持つので、件数だけでなく
+   合計の大きさでも上限を設ける。書き込みの多い文書で膨らみ続けるのを防ぐ。 */
+var HISTORY_MAX = 40, HISTORY_BYTES = 6 * 1024 * 1024;
+function histPush(stack, snap){
+  stack.push(snap);
+  stack.bytes = (stack.bytes || 0) + snap.length;
+  while (stack.length > 1 && (stack.length > HISTORY_MAX || stack.bytes > HISTORY_BYTES)){
+    stack.bytes -= stack.shift().length;
+  }
+}
+function histPop(stack){
+  var snap = stack.pop();
+  if (snap) stack.bytes = (stack.bytes || 0) - snap.length;
+  return snap;
+}
 function pushHistory(){
   scheduleSave();
-  S.history.push(snapshot());
-  if (S.history.length > 40) S.history.shift();
-  S.future.length = 0;
+  histPush(S.history, snapshot());
+  S.future.length = 0; S.future.bytes = 0;
   syncUndo();
 }
 function restore(json){
@@ -480,14 +504,14 @@ function restore(json){
 function undo(){
   if (!S.history.length) return;
   scheduleSave();
-  S.future.push(snapshot());
-  restore(S.history.pop()); syncUndo();
+  histPush(S.future, snapshot());
+  restore(histPop(S.history)); syncUndo();
 }
 function redo(){
   if (!S.future.length) return;
   scheduleSave();
-  S.history.push(snapshot());
-  restore(S.future.pop()); syncUndo();
+  histPush(S.history, snapshot());
+  restore(histPop(S.future)); syncUndo();
 }
 function syncUndo(){
   $("btnUndo").disabled = !S.history.length;
@@ -529,6 +553,58 @@ function askRestore(when){
         if (e.key === "Escape"){ e.preventDefault(); finish(false); }
       });
       back.querySelector('[data-a="yes"]').focus();
+    }
+  );
+}
+
+/* -------------------------------------------- 使い方・ショートカット・権利表記 */
+function showHelp(){
+  var rows = [
+    ["V T P M R L W E", "選択 / テキスト / ペン / マーカー / 四角 / 直線 / 白塗り / 消す"],
+    ["Ctrl (⌘) + Z", "元に戻す"],
+    ["Ctrl (⌘) + Shift + Z", "やり直す"],
+    ["Ctrl (⌘) + S", "PDFを書き出す"],
+    ["Delete", "選んだ書き込みを削除"],
+    ["F", "文字を探す"],
+    ["Enter / Shift + Enter", "次の一致 / 前の一致（検索欄で）"],
+    ["↑ ↓", "ページを選ぶ（ページ一覧を選択中）"],
+    ["Ctrl (⌘) + ↑ ↓", "選んだページを前後に動かす"],
+    ["?", "この画面を開く"]
+  ].map(function(r){
+    return "<tr><th>" + r[0] + "</th><td>" + r[1] + "</td></tr>";
+  }).join("");
+  modal(
+    '<div class="card wide" role="dialog" aria-modal="true" aria-labelledby="hpttl">' +
+      '<div class="ttl" id="hpttl">使い方</div>' +
+      '<div class="msg">PDFはこの端末の中だけで処理され、どこにも送信されません。</div>' +
+      '<h4>キーボードショートカット</h4><table>' + rows + '</table>' +
+      '<h4>タブレット・スマートフォン</h4>' +
+      '<table>' +
+        '<tr><th>2本指でなぞる</th><td>ページを動かす</td></tr>' +
+        '<tr><th>2本指を広げる/縮める</th><td>拡大・縮小</td></tr>' +
+        '<tr><th>ページ一覧を長押し</th><td>そのまま動かして並べ替え</td></tr>' +
+      '</table>' +
+      '<h4>白塗りについて</h4>' +
+      '<div class="msg">白塗りは見た目を隠すだけでなく、元の文字データごと消します。' +
+      'そのため白塗りを使ったページは、書き出すときに画像になります。' +
+      '四角ツールで白く塗っただけでは、下の文字は残ります。</div>' +
+      '<h4>このアプリについて</h4>' +
+      '<div class="msg">PDF工房 — MIT License<br>' +
+        '<a href="https://mozilla.github.io/pdf.js/" target="_blank" rel="noopener">PDF.js</a>' +
+        ' — Apache License 2.0（vendor/LICENSE-pdf.js.txt）<br>' +
+        '<a href="https://pdf-lib.js.org/" target="_blank" rel="noopener">pdf-lib</a>' +
+        ' — MIT License（vendor/LICENSE-pdf-lib.txt）</div>' +
+      '<div class="row"><button class="btn primary" data-a="ok">閉じる</button></div>' +
+    '</div>',
+    function(back, finish){
+      back.addEventListener("click", function(e){
+        if (e.target.closest("[data-a]") || e.target === back) finish(true);
+      });
+      back.addEventListener("keydown", function(e){
+        e.stopPropagation();
+        if (e.key === "Escape" || e.key === "Enter"){ e.preventDefault(); finish(true); }
+      });
+      back.querySelector("[data-a]").focus();
     }
   );
 }
@@ -736,7 +812,9 @@ async function openBytes(bytes, name, replace){
     }));
     pageCache.set(id+":"+i, Promise.resolve(pg));
   }
-  if (replace){ S.pages = added; S.sel = new Set(); S.history.length=0; S.future.length=0; syncUndo(); }
+  if (replace){ S.pages = added; S.sel = new Set();
+    S.history.length = 0; S.history.bytes = 0;
+    S.future.length = 0;  S.future.bytes = 0; syncUndo(); }
   else { pushHistory(); S.pages = S.pages.concat(added); }
   pruneDocs();
   scheduleSave(true);
@@ -1180,10 +1258,10 @@ function bindSheet(p, canvas){
     var a = drag.a;
     if (drag.mode === "create"){
       p.annots.splice(p.annots.indexOf(a), 1);
-      S.history.pop(); syncUndo();
+      histPop(S.history); syncUndo();
     } else if (drag.mode === "move" || drag.mode === "resize"){
       Object.keys(drag.orig).forEach(function(k){ a[k] = drag.orig[k]; });
-      S.history.pop(); syncUndo();
+      histPop(S.history); syncUndo();
     }
     drag = null; S.active = null;
     paintSheet(p); markThumb(p);
@@ -1299,7 +1377,7 @@ function bindSheet(p, canvas){
     if (drag.mode === "create" && a.t !== "pen" && a.t !== "marker"
         && Math.abs(a.w2) < 3 && Math.abs(a.h2) < 3){
       p.annots.splice(p.annots.indexOf(a),1);
-      S.history.pop(); syncUndo();
+      histPop(S.history); syncUndo();
     } else if (drag.mode === "create"){
       S.active = {p:p, a:a};
     }
@@ -1565,10 +1643,10 @@ function moveSel(dir){
   pushHistory();
   var idx = S.pages.map(function(p,i){ return S.sel.has(p.uid) ? i : -1; }).filter(function(i){return i>=0;});
   if (dir < 0){
-    if (idx[0] === 0) { S.history.pop(); syncUndo(); return; }
+    if (idx[0] === 0) { histPop(S.history); syncUndo(); return; }
     idx.forEach(function(i){ var t=S.pages[i-1]; S.pages[i-1]=S.pages[i]; S.pages[i]=t; });
   } else {
-    if (idx[idx.length-1] === S.pages.length-1) { S.history.pop(); syncUndo(); return; }
+    if (idx[idx.length-1] === S.pages.length-1) { histPop(S.history); syncUndo(); return; }
     idx.slice().reverse().forEach(function(i){ var t=S.pages[i+1]; S.pages[i+1]=S.pages[i]; S.pages[i]=t; });
   }
   buildSheets(); buildThumbs();
@@ -1593,7 +1671,8 @@ function addBlank(){
 }
 
 /* ------------------------------------------------------------------ zoom */
-function setZoom(z){
+function setZoom(z, keepFit){
+  if (!keepFit) S.fitWidth = false;
   S.zoom = clamp(z, 0.25, 4);
   $("zLabel").textContent = Math.round(S.zoom*100) + "%";
   buildSheets();
@@ -1603,7 +1682,8 @@ function fitWidth(){
   var avail = stage.clientWidth - 44;
   var p = S.pages[0], r = totalRot(p);
   var base = (r % 180 === 0) ? p.pw : p.ph;
-  setZoom(avail / base);
+  setZoom(avail / base, true);
+  S.fitWidth = true;
 }
 
 /* ---------------------------------------------------------------- export */
@@ -2105,6 +2185,30 @@ stage.addEventListener("scroll", function(){
   pnTimer = setTimeout(syncPageNo, 120);
 });
 
+$("btnHelp").addEventListener("click", showHelp);
+$("btnSample").addEventListener("click", openSample);
+
+/* ページ一覧のキーボード操作 */
+thumbsEl.addEventListener("keydown", function(e){
+  if (!S.pages.length) return;
+  var cur = S.pages.findIndex(function(p){ return S.sel.has(p.uid); });
+  if (cur < 0) cur = 0;
+  var mod = e.ctrlKey || e.metaKey;
+  if (e.key === "ArrowDown" || e.key === "ArrowUp"){
+    e.preventDefault();
+    var d = e.key === "ArrowDown" ? 1 : -1;
+    if (mod){ moveSel(d); return; }
+    var next = clamp(cur + d, 0, S.pages.length - 1);
+    selectPage(S.pages[next].uid, e.shiftKey, false);
+    var el = S.pages[next].el;
+    if (el) el.scrollIntoView({block:"nearest"});
+    var t = thumbsEl.children[next];
+    if (t) t.scrollIntoView({block:"nearest"});
+    return;
+  }
+  if (e.key === "Delete" || e.key === "Backspace"){ e.preventDefault(); deleteSel(); }
+});
+
 $("btnExport").addEventListener("click", askExport);
 $("btnUndo").addEventListener("click", undo);
 $("btnRedo").addEventListener("click", redo);
@@ -2140,6 +2244,7 @@ document.addEventListener("keydown", function(e){
   if (S.editing) return;
   var t = e.target;
   if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
+  if (e.key === "?" || (e.key === "/" && e.shiftKey)){ e.preventDefault(); showHelp(); return; }
   if (!(e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f"){
     e.preventDefault(); $("findIn").focus(); $("findIn").select(); return;
   }
@@ -2162,7 +2267,12 @@ document.addEventListener("keydown", function(e){
 var rz;
 window.addEventListener("resize", function(){
   clearTimeout(rz);
-  rz = setTimeout(function(){ if (S.pages.length) buildSheets(); }, 220);
+  rz = setTimeout(function(){
+    // シートの大きさは倍率だけで決まるため、普段は組み直さなくてよい。
+    // 「幅に合わせる」で見ているときだけ、新しい幅に合わせ直す。
+    if (S.pages.length && S.fitWidth) fitWidth();
+    syncPageNo();
+  }, 220);
 });
 
 /* --------------------------------------------------------------------- init */
@@ -2193,12 +2303,18 @@ async function init(){
     }
   }
 
+  // サンプルは毎回作らない。起動を軽くし、すぐ自分のPDFを開けるようにする。
+  $("emptyStage").hidden = false;
+}
+
+async function openSample(){
   S.noSave = true;
   try {
     busy("サンプルを準備しています…");
     await loadSample();
   } catch(err){
     console.error(err);
+    toast("サンプルを開けませんでした");
     $("emptyStage").hidden = false;
   } finally { busy(null); S.noSave = false; }
 }
