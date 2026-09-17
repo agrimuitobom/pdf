@@ -361,6 +361,98 @@ select,input[type=number]{
   color:#c9d1db;font-size:11.5px;text-align:center;padding:0 16px 6px;
 }
 
+/* ---------- ページ整理モード ---------- */
+.seg{display:inline-flex;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2)}
+.seg button{
+  border:0;background:transparent;padding:5px 14px;border-radius:6px;
+  font:inherit;font-size:13px;color:var(--ink-2);cursor:pointer;white-space:nowrap;
+}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:var(--shadow-sm)}
+
+.orgbar{
+  display:flex;align-items:center;gap:2px;flex:none;
+  padding:6px 14px;background:var(--surface);border-bottom:1px solid var(--line);
+}
+.orgcount{font-size:13px;color:var(--accent);font-weight:600;margin-right:10px;white-space:nowrap}
+.act{
+  display:inline-flex;align-items:center;gap:6px;padding:7px 11px;
+  border:1px solid transparent;border-radius:var(--r);background:transparent;
+  color:var(--ink);font:inherit;font-size:13px;cursor:pointer;white-space:nowrap;
+}
+.act:hover:not(:disabled){background:var(--surface-2)}
+.act:disabled{opacity:.38;cursor:default}
+.act svg{width:16px;height:16px;flex:none;color:var(--ink-2)}
+.act.danger,.act.danger svg{color:var(--danger)}
+
+.orgview{flex:1 1 auto;min-height:0;overflow:auto;background:var(--paper);padding:22px 24px 40px}
+.orggrid{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--cw,190px),1fr));
+  gap:22px;align-content:start;
+}
+.ocard{position:relative;cursor:pointer;user-select:none}
+.ocard .shot{
+  background:#fff;border:1px solid var(--line);border-radius:4px;box-shadow:var(--shadow-sm);
+  display:flex;align-items:center;justify-content:center;overflow:hidden;
+}
+.ocard .shot img{display:block;max-width:100%;max-height:100%;-webkit-user-drag:none}
+.ocard[aria-selected="true"] .shot{border:2px solid var(--accent);box-shadow:0 0 0 2px var(--accent)}
+.ocard .no{text-align:center;font-size:12px;color:var(--ink-2);margin-top:6px;font-variant-numeric:tabular-nums}
+.ocard[aria-selected="true"] .no{color:var(--accent);font-weight:700}
+.ocard .mark{
+  position:absolute;top:8px;right:8px;width:9px;height:9px;border-radius:50%;
+  background:var(--danger);box-shadow:0 0 0 2px var(--surface);
+}
+.ocard .hov{
+  position:absolute;left:0;right:0;top:0;display:none;justify-content:center;gap:4px;padding:7px;
+}
+.ocard:hover .hov,.ocard:focus-within .hov{display:flex}
+.ocard .hb{
+  display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;
+  border:1px solid var(--line);border-radius:var(--r);background:var(--surface);
+  color:var(--ink);cursor:pointer;box-shadow:var(--shadow-sm);
+}
+.ocard .hb:hover{background:var(--surface-2)}
+.ocard .hb.danger{color:var(--danger)}
+.ocard .hb svg{width:16px;height:16px}
+.ocard .rotbadge{
+  position:absolute;left:8px;bottom:30px;font-size:10px;color:var(--ink-2);
+  background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:1px 5px;
+}
+.ocard.grabbed{opacity:.4}
+.ocard.dropbefore::before,.ocard.dropafter::after{
+  content:"";position:absolute;top:0;bottom:26px;width:3px;background:var(--accent);border-radius:2px;
+}
+.ocard.dropbefore::before{left:-13px}
+.ocard.dropafter::after{right:-13px}
+.ins{
+  position:absolute;left:-24px;top:0;bottom:26px;width:26px;
+  display:flex;align-items:center;justify-content:center;opacity:0;
+}
+.ocard:hover .ins,.ins:focus-within{opacity:1}
+.insb{
+  width:22px;height:22px;padding:0;border-radius:50%;border:1px solid var(--line);
+  background:var(--surface);color:var(--accent);cursor:pointer;box-shadow:var(--shadow-sm);
+  display:flex;align-items:center;justify-content:center;
+}
+.insb:hover{background:var(--accent-soft)}
+.insb svg{width:12px;height:12px}
+.orgstatus{
+  flex:none;display:flex;align-items:center;gap:14px;padding:0 16px;height:30px;
+  background:var(--surface);border-top:1px solid var(--line);
+  font-size:11.5px;color:var(--ink-2);
+}
+.orgempty{color:var(--ink-2);font-size:13px;padding:40px 0;text-align:center}
+/* 整理中は、書き込み用の操作をしまう */
+body.organizing .appbar .field:not(#modeSeg){display:none}
+body.organizing .appbar #findBox{display:none}
+.orgbar #orgSize{width:80px;margin-right:2px}
+/* 白紙は中身が無いと分からないので、地を入れる */
+.ocard .shot.blank{
+  border-style:dashed;
+  background:repeating-linear-gradient(45deg,#fff,#fff 7px,#f4f6fa 7px,#f4f6fa 14px);
+}
+@media (max-width:760px){ .wide-only{display:none} }
+
 /* ---------- 文脈メニュー・浮動バー ---------- */
 .menu{
   position:fixed;z-index:75;min-width:210px;padding:5px 0;
@@ -504,6 +596,10 @@ select,input[type=number]{
   <div class="appbar">
     <button class="btn icon only-narrow" id="btnPages" aria-label="ページ一覧を開く"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
     <div class="brand"><b>PDF工房</b><span>ブラウザで完結</span></div>
+    <div class="seg wide-only" id="modeSeg" role="group" aria-label="画面の切り替え">
+      <button type="button" id="modeEdit" aria-pressed="true">書き込み</button>
+      <button type="button" id="modeOrg" aria-pressed="false">ページ整理</button>
+    </div>
     <div class="docmeta only-narrow" id="docMeta"><b id="docName">PDFを開いてください</b><span id="docSub"></span></div>
     <button class="btn" id="btnOpen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h6l2 2h10v10H3z"/></svg>開く</button>
     <button class="btn" id="btnAdd"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>PDFを追加</button>
@@ -547,6 +643,32 @@ select,input[type=number]{
     </div>
   </div>
 
+  <div class="orgbar" id="orgBar" hidden>
+    <span class="orgcount" id="orgCount">0ページを選択中</span>
+    <button class="act" id="oRotL"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9a8 8 0 1 1 2.5 7M3 4v5h5"/></svg>左に回転</button>
+    <button class="act" id="oRotR"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 9a8 8 0 1 0-2.5 7M21 4v5h-5"/></svg>右に回転</button>
+    <span class="sep" style="height:22px;margin:0 7px"></span>
+    <button class="act" id="oDup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M8 8h12v12H8z"/><path d="M4 16V4h12"/></svg>複製</button>
+    <button class="act" id="oIns"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h9l5 5v11H5z"/><path d="M12 11v6M9 14h6"/></svg>ここに挿入</button>
+    <button class="act" id="oOut"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg><span id="oOutLb">選んだページを書き出す</span></button>
+    <span class="sep" style="height:22px;margin:0 7px"></span>
+    <button class="act danger" id="oDel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13"/></svg>削除</button>
+    <span class="spacer"></span>
+    <button class="act" id="oAll" style="font-size:12.5px;color:var(--ink-2)">すべて選択</button>
+    <span class="sep" style="height:22px;margin:0 7px"></span>
+    <label class="hint" for="orgSize">大きさ</label>
+    <input type="range" id="orgSize" min="130" max="300" step="10" value="190" aria-label="サムネイルの大きさ">
+  </div>
+
+  <div class="orgview" id="orgView" hidden>
+    <div class="orggrid" id="orgGrid"></div>
+  </div>
+  <div class="orgstatus" id="orgStatus" hidden>
+    <span id="orgStat"></span>
+    <span class="spacer"></span>
+    <span>ドラッグで並べ替え　・　ページの間の＋で挿入　・　右クリックでメニュー</span>
+  </div>
+
   <div class="main" id="main">
     <button class="btn" id="railOpen" hidden aria-label="ページ一覧を開く"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 6l6 6-6 6"/></svg><span class="lb">ページ</span></button>
     <div class="scrim" id="scrim" hidden></div>
@@ -583,6 +705,7 @@ select,input[type=number]{
 
 <input type="file" id="fileIn" accept="application/pdf,.pdf" multiple hidden>
 <input type="file" id="imgIn" accept="image/png,image/jpeg,image/webp" hidden>
+<input type="file" id="insIn" accept="application/pdf,.pdf" multiple hidden>
 <textarea id="ted" hidden spellcheck="false"></textarea>
 
 <script>
@@ -612,6 +735,7 @@ var S = {
   images: new Map(),
   uid: 0, docSeq: 0,
   editing: null,
+  mode: "edit",     // edit | organize
   find: {q:"", hits:[], idx:-1},
   fitWidth: false,  // 「幅に合わせる」で見ているか
   unsaved: false,   // 自動保存が追いついていないか
@@ -698,7 +822,7 @@ function restore(json){
   S.active = null;
   var keep = new Set(S.pages.map(function(p){return p.uid;}));
   S.sel = new Set(Array.from(S.sel).filter(function(u){ return keep.has(u); }));
-  buildSheets(); buildThumbs();
+  buildSheets(); buildThumbs(); if (inOrganize()) buildOrg();
 }
 function undo(){
   if (!S.history.length) return;
@@ -754,6 +878,156 @@ function askRestore(when){
       back.querySelector('[data-a="yes"]').focus();
     }
   );
+}
+
+/* ---------------------------------------------------------- ページ整理モード */
+/* ページの組み替えだけに画面を使うモード。細いページ一覧では狭い、
+   10ページを超える資料の並べ替え・抜き差しのために用意する。 */
+var orgSize = 190;
+try { orgSize = clamp(parseInt(localStorage.getItem("pdfk.orgsize"), 10) || 190, 130, 300); } catch(e){}
+
+function inOrganize(){ return S.mode === "organize"; }
+function setMode(m){
+  if (S.mode === m) return;
+  if (m === "organize" && S.editing) commitText();
+  S.mode = m;
+  var org = (m === "organize");
+  $("modeEdit").setAttribute("aria-pressed", org ? "false" : "true");
+  $("modeOrg").setAttribute("aria-pressed", org ? "true" : "false");
+  document.querySelector(".toolbar").hidden = org;
+  $("main").hidden = org;
+  document.body.classList.toggle("organizing", org);
+  $("orgBar").hidden = $("orgView").hidden = $("orgStatus").hidden = !org;
+  if (org){ killFloatbar(); buildOrg(); }
+  else { buildSheets(); buildThumbs(); }
+}
+
+function orgCardHeight(){ return Math.round(orgSize * 1.35); }
+
+function buildOrg(){
+  var grid = $("orgGrid");
+  grid.textContent = "";
+  grid.style.setProperty("--cw", orgSize + "px");
+  $("orgSize").value = String(orgSize);
+  if (!S.pages.length){
+    var e = document.createElement("div");
+    e.className = "orgempty";
+    e.textContent = "PDFを開くと、ここでページを並べ替えられます。";
+    grid.appendChild(e);
+    syncOrgBar();
+    return;
+  }
+  S.pages.forEach(function(p, i){
+    var el = document.createElement("div");
+    el.className = "ocard";
+    el.dataset.uid = p.uid;
+    el.tabIndex = 0;
+    el.setAttribute("role", "option");
+    el.setAttribute("aria-selected", S.sel.has(p.uid) ? "true" : "false");
+    el.setAttribute("aria-label", (i + 1) + "ページ目");
+
+    var shot = document.createElement("div");
+    shot.className = "shot" + (p.blank ? " blank" : "");
+    shot.style.height = orgCardHeight() + "px";
+    var no = document.createElement("div");
+    no.className = "no";
+    no.textContent = (i + 1) + (p.blank ? "　白紙" : "");
+    el.appendChild(shot); el.appendChild(no);
+
+    if (p.annots.length){
+      var m = document.createElement("i"); m.className = "mark"; el.appendChild(m);
+    }
+    if (totalRot(p)){
+      var rb = document.createElement("span");
+      rb.className = "rotbadge"; rb.textContent = totalRot(p) + "°";
+      el.appendChild(rb);
+    }
+
+    var hov = document.createElement("div");
+    hov.className = "hov";
+    hov.appendChild(orgHoverBtn("左に回転", ICON.rotL, function(){ orgOne(p, function(){ p.rot = ((p.rot - 90) % 360 + 360) % 360; }); }));
+    hov.appendChild(orgHoverBtn("右に回転", ICON.rotR, function(){ orgOne(p, function(){ p.rot = ((p.rot + 90) % 360 + 360) % 360; }); }));
+    hov.appendChild(orgHoverBtn("削除", ICON.del, function(){
+      pushHistory();
+      S.pages = S.pages.filter(function(q){ return q !== p; });
+      S.sel.delete(p.uid);
+      pruneDocs(); buildOrg();
+    }, true));
+    el.appendChild(hov);
+
+    var ins = document.createElement("div");
+    ins.className = "ins";
+    var ib = document.createElement("button");
+    ib.type = "button"; ib.className = "insb";
+    ib.setAttribute("aria-label", (i + 1) + "ページ目の前に挿入");
+    ib.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
+    ib.addEventListener("click", function(ev){
+      ev.stopPropagation();
+      insertMenu(i, ev.currentTarget.getBoundingClientRect());
+    });
+    ins.appendChild(ib);
+    el.appendChild(ins);
+
+    grid.appendChild(el);
+    thumbFor(p).then(function(url){
+      var img = new Image();
+      img.src = url; img.alt = ""; img.draggable = false;
+      shot.appendChild(img);
+    }).catch(function(){});
+  });
+  syncOrgBar();
+}
+function orgHoverBtn(label, icon, run, danger){
+  var b = document.createElement("button");
+  b.type = "button";
+  b.className = "hb" + (danger ? " danger" : "");
+  b.setAttribute("aria-label", label);
+  b.title = label;
+  b.innerHTML = svg(icon);
+  b.addEventListener("click", function(e){ e.stopPropagation(); run(); });
+  return b;
+}
+/* 選択に関係なく、そのページだけを変える */
+function orgOne(p, fn){
+  pushHistory();
+  fn();
+  var key = thumbKey(p);
+  thumbCache.delete(key);
+  buildOrg();
+}
+function syncOrgBar(){
+  var n = S.sel.size;
+  $("orgCount").textContent = n ? (n + "ページを選択中") : "ページを選んでください";
+  ["oRotL","oRotR","oDup","oOut","oDel"].forEach(function(id){ $(id).disabled = !n; });
+  $("oIns").disabled = !S.pages.length;
+  $("oOutLb").textContent = n > 1 ? ("選んだ" + n + "ページを書き出す") : "選んだページを書き出す";
+  $("oAll").disabled = !S.pages.length;
+  $("orgStat").textContent = S.pages.length + "ページ" + (n ? ("　・　" + n + "ページを選択中") : "");
+  Array.from($("orgGrid").children).forEach(function(el){
+    if (el.dataset.uid) el.setAttribute("aria-selected", S.sel.has(+el.dataset.uid) ? "true" : "false");
+  });
+}
+
+/* 差し込み口。白紙か、別のPDFかを選ばせる。 */
+var insertAt = null;
+function insertMenu(idx, rect){
+  insertAt = idx;
+  showMenu(rect.left - 8, rect.bottom + 6, [
+    {label:"白紙を挿入", icon:ICON.blank, run:function(){ insertBlankAt(idx); }},
+    {label:"PDFファイルを挿入…", icon:ICON.open, run:function(){
+      $("insIn").value = "";
+      $("insIn").click();
+    }}
+  ], (idx >= S.pages.length ? "最後に追加" : (idx + 1) + "ページ目の前に挿入"));
+}
+function insertBlankAt(idx){
+  var ref = S.pages[Math.min(idx, S.pages.length - 1)];
+  var w = ref ? ref.pw : 595.28, h = ref ? ref.ph : 841.89;
+  pushHistory();
+  var np = newPage(null, -1, {pw:w, ph:h, vx0:0, vy0:0, vy1:h, irot:0, blank:true});
+  S.pages.splice(idx, 0, np);
+  S.sel = new Set([np.uid]);
+  if (inOrganize()) buildOrg(); else { buildSheets(); buildThumbs(); }
 }
 
 /* ------------------------------------------------------------ 文脈メニュー */
@@ -877,6 +1151,11 @@ function showHelp(){
         '<tr><th>2本指を広げる/縮める</th><td>拡大・縮小</td></tr>' +
         '<tr><th>ページ一覧を長押し</th><td>そのまま動かして並べ替え</td></tr>' +
       '</table>' +
+      '<h4>ページ整理</h4>' +
+      '<div class="msg">上の「ページ整理」に切り替えると、ページの組み替えだけに画面を使えます。' +
+      'ドラッグで並べ替え、ページの間の＋で白紙や別のPDFを差し込み、' +
+      'ページにカーソルを置くとそのページだけの回転と削除が出ます。' +
+      'ダブルクリックでそのページの書き込み画面に戻ります。</div>' +
       '<h4>白塗りについて</h4>' +
       '<div class="msg">白塗りは見た目を隠すだけでなく、元の文字データごと消します。' +
       'そのため白塗りを使ったページは、書き出すときに画像になります。' +
@@ -1091,7 +1370,7 @@ function pruneDocs(){
   });
 }
 
-async function openBytes(bytes, name, replace){
+async function openBytes(bytes, name, replace, at){
   var id = "d" + (++S.docSeq);
   var pdf = await openPdfData(bytes, name);
   S.docs.set(id, {name: name, bytes: bytes, pdf: pdf});
@@ -1108,15 +1387,25 @@ async function openBytes(bytes, name, replace){
   if (replace){ S.pages = added; S.sel = new Set();
     S.history.length = 0; S.history.bytes = 0;
     S.future.length = 0;  S.future.bytes = 0; syncUndo(); }
-  else { pushHistory(); S.pages = S.pages.concat(added); }
+  else {
+    pushHistory();
+    if (typeof at === "number"){
+      var k = clamp(at, 0, S.pages.length);
+      S.pages = S.pages.slice(0, k).concat(added, S.pages.slice(k));
+      S.sel = new Set(added.map(function(q){ return q.uid; }));
+    } else {
+      S.pages = S.pages.concat(added);
+    }
+  }
   pruneDocs();
   scheduleSave(true);
+  if (inOrganize()) buildOrg();
   buildSheets(); buildThumbs();
   if (replace) requestAnimationFrame(fitWidth);
   return added;
 }
 
-async function handleFiles(list, replace){
+async function handleFiles(list, replace, at){
   var files = Array.from(list).filter(function(f){
     return f.type === "application/pdf" || /\.pdf$/i.test(f.name);
   });
@@ -1127,7 +1416,8 @@ async function handleFiles(list, replace){
     for (var i=0;i<files.length;i++){
       var buf = new Uint8Array(await files[i].arrayBuffer());
       try{
-        await openBytes(buf, files[i].name, replace && opened===0);
+        await openBytes(buf, files[i].name, replace && opened===0,
+                        (typeof at === "number") ? at + opened : undefined);
         opened++;
       }catch(err){
         if (!err || !err.cancelled) throw err;   // パスワード入力の取り消しは飛ばして次へ
@@ -2061,6 +2351,7 @@ function updateSelUI(){
   var n = S.sel.size;
   ["opRotL","opRotR","opUp","opDown","opDup","opDel"].forEach(function(id){ $(id).disabled = !n; });
   $("opBlank").disabled = !S.pages.length;
+  if (inOrganize()) syncOrgBar();
 }
 
 /* --------------------------------------------------------------- page ops */
@@ -2069,7 +2360,7 @@ function rotateSel(dir){
   if (!S.sel.size) return;
   pushHistory();
   selectedPages().forEach(function(p){ p.rot = ((p.rot + dir*90) % 360 + 360) % 360; });
-  buildSheets(); buildThumbs();
+  buildSheets(); buildThumbs(); if (inOrganize()) buildOrg();
 }
 function deleteSel(){
   if (!S.sel.size) return;
@@ -2077,7 +2368,7 @@ function deleteSel(){
   S.pages = S.pages.filter(function(p){ return !S.sel.has(p.uid); });
   S.sel = new Set(); S.active = null;
   pruneDocs();
-  buildSheets(); buildThumbs();
+  buildSheets(); buildThumbs(); if (inOrganize()) buildOrg();
 }
 function dupSel(){
   if (!S.sel.size) return;
@@ -2093,7 +2384,7 @@ function dupSel(){
     }
   });
   S.pages = out;
-  buildSheets(); buildThumbs();
+  buildSheets(); buildThumbs(); if (inOrganize()) buildOrg();
 }
 function moveSel(dir){
   if (!S.sel.size) return;
@@ -2106,7 +2397,7 @@ function moveSel(dir){
     if (idx[idx.length-1] === S.pages.length-1) { histPop(S.history); syncUndo(); return; }
     idx.slice().reverse().forEach(function(i){ var t=S.pages[i+1]; S.pages[i+1]=S.pages[i]; S.pages[i]=t; });
   }
-  buildSheets(); buildThumbs();
+  buildSheets(); buildThumbs(); if (inOrganize()) buildOrg();
 }
 function movePageTo(uid, toIdx){
   var from = S.pages.findIndex(function(p){ return p.uid === uid; });
@@ -2114,7 +2405,7 @@ function movePageTo(uid, toIdx){
   pushHistory();
   var p = S.pages.splice(from,1)[0];
   S.pages.splice(toIdx, 0, p);
-  buildSheets(); buildThumbs();
+  buildSheets(); buildThumbs(); if (inOrganize()) buildOrg();
 }
 function addBlank(){
   var ref = selectedPages()[0] || S.pages[S.pages.length-1];
@@ -2124,7 +2415,7 @@ function addBlank(){
   var at = ref ? S.pages.indexOf(ref)+1 : S.pages.length;
   S.pages.splice(at, 0, np);
   S.sel = new Set([np.uid]);
-  buildSheets(); buildThumbs();
+  buildSheets(); buildThumbs(); if (inOrganize()) buildOrg();
 }
 
 /* ------------------------------------------------------------------ zoom */
@@ -2757,6 +3048,133 @@ function syncDocMeta(){
     (S.unsaved ? "" : " ・ 保存済み");
 }
 
+/* ------------------------------------------------ ページ整理モードの操作 */
+$("modeEdit").addEventListener("click", function(){ setMode("edit"); });
+$("modeOrg").addEventListener("click", function(){ setMode("organize"); });
+
+$("insIn").addEventListener("change", function(e){
+  if (e.target.files.length && insertAt != null) handleFiles(e.target.files, false, insertAt);
+  e.target.value = "";
+});
+
+$("oRotL").addEventListener("click", function(){ rotateSel(-1); });
+$("oRotR").addEventListener("click", function(){ rotateSel(1); });
+$("oDup").addEventListener("click", dupSel);
+$("oDel").addEventListener("click", deleteSel);
+$("oOut").addEventListener("click", function(){ askExport(true); });
+$("oAll").addEventListener("click", function(){
+  S.sel = new Set(S.pages.map(function(p){ return p.uid; }));
+  updateSelUI();
+});
+$("oIns").addEventListener("click", function(e){
+  var sel = selectedPages();
+  var at = sel.length ? S.pages.indexOf(sel[sel.length - 1]) + 1 : S.pages.length;
+  insertMenu(at, e.currentTarget.getBoundingClientRect());
+});
+$("orgSize").addEventListener("input", function(e){
+  orgSize = +e.target.value;
+  try { localStorage.setItem("pdfk.orgsize", String(orgSize)); } catch(err){}
+  $("orgGrid").style.setProperty("--cw", orgSize + "px");
+  Array.from($("orgGrid").querySelectorAll(".shot")).forEach(function(sh){
+    sh.style.height = orgCardHeight() + "px";
+  });
+});
+
+/* 選択と並べ替え */
+var orgDrag = null;
+function orgCards(){ return Array.from($("orgGrid").children).filter(function(el){ return el.dataset.uid; }); }
+function orgClearMarks(){
+  orgCards().forEach(function(el){ el.classList.remove("dropbefore","dropafter"); });
+}
+function orgTargetIndex(x, y){
+  var els = orgCards();
+  for (var i=0;i<els.length;i++){
+    var r = els[i].getBoundingClientRect();
+    if (y < r.bottom && x < r.left + r.width / 2) return i;
+    if (y < r.top) return i;
+  }
+  return els.length;
+}
+$("orgGrid").addEventListener("pointerdown", function(e){
+  var el = e.target.closest(".ocard");
+  if (!el || e.target.closest(".hb, .insb")) return;
+  if (e.button != null && e.button !== 0) return;
+  orgDrag = {uid:+el.dataset.uid, el:el, x:e.clientX, y:e.clientY, id:e.pointerId, active:false, at:null};
+});
+$("orgGrid").addEventListener("pointermove", function(e){
+  if (!orgDrag || e.pointerId !== orgDrag.id) return;
+  if (!orgDrag.active){
+    if (Math.abs(e.clientX - orgDrag.x) + Math.abs(e.clientY - orgDrag.y) < 7) return;
+    orgDrag.active = true;
+    orgDrag.el.classList.add("grabbed");
+  }
+  orgClearMarks();
+  orgDrag.at = orgTargetIndex(e.clientX, e.clientY);
+  var els = orgCards();
+  if (orgDrag.at < els.length) els[orgDrag.at].classList.add("dropbefore");
+  else if (els.length) els[els.length - 1].classList.add("dropafter");
+});
+function orgEnd(e){
+  if (!orgDrag) return;
+  var d = orgDrag; orgDrag = null;
+  d.el.classList.remove("grabbed");
+  orgClearMarks();
+  if (!d.active){
+    selectPage(d.uid, e && e.shiftKey, e && (e.ctrlKey || e.metaKey));
+    syncOrgBar();
+    return;
+  }
+  if (d.at == null) return;
+  var from = S.pages.findIndex(function(p){ return p.uid === d.uid; });
+  var to = d.at > from ? d.at - 1 : d.at;
+  if (from >= 0 && to !== from){
+    pushHistory();
+    var p = S.pages.splice(from, 1)[0];
+    S.pages.splice(to, 0, p);
+    buildOrg();
+  }
+}
+$("orgGrid").addEventListener("pointerup", orgEnd);
+$("orgGrid").addEventListener("pointercancel", function(){ orgEnd(null); });
+$("orgGrid").addEventListener("contextmenu", function(e){
+  var el = e.target.closest(".ocard");
+  if (!el) return;
+  e.preventDefault();
+  var p = byUid(+el.dataset.uid);
+  if (p) pageMenu(p, e.clientX, e.clientY);
+});
+$("orgGrid").addEventListener("dblclick", function(e){
+  var el = e.target.closest(".ocard");
+  if (!el) return;
+  var p = byUid(+el.dataset.uid);
+  setMode("edit");
+  if (p && p.el) setTimeout(function(){ p.el.scrollIntoView({block:"start"}); }, 30);
+});
+$("orgGrid").addEventListener("keydown", function(e){
+  var el = e.target.closest(".ocard");
+  if (!el) return;
+  var cards = orgCards(), i = cards.indexOf(el);
+  var cols = Math.max(1, Math.round($("orgGrid").clientWidth / (orgSize + 22)));
+  var next = null;
+  if (e.key === "ArrowRight") next = i + 1;
+  else if (e.key === "ArrowLeft") next = i - 1;
+  else if (e.key === "ArrowDown") next = i + cols;
+  else if (e.key === "ArrowUp") next = i - cols;
+  else if (e.key === "Enter" || e.key === " "){
+    e.preventDefault();
+    selectPage(+el.dataset.uid, e.shiftKey, e.ctrlKey || e.metaKey);
+    syncOrgBar(); return;
+  } else if (e.key === "Delete" || e.key === "Backspace"){
+    e.preventDefault(); deleteSel(); return;
+  } else return;
+  e.preventDefault();
+  if (next != null && cards[next]){
+    cards[next].focus();
+    selectPage(+cards[next].dataset.uid, e.shiftKey, false);
+    syncOrgBar();
+  }
+});
+
 $("btnHelp").addEventListener("click", showHelp);
 $("btnSample").addEventListener("click", openSample);
 
@@ -2843,6 +3261,7 @@ document.addEventListener("keydown", function(e){
     }
     return;
   }
+  if (inOrganize()) return;
   var map = {v:"select", t:"text", p:"pen", m:"marker", r:"rect", l:"line", w:"white", e:"erase"};
   if (!mod && map[e.key.toLowerCase()]) setTool(map[e.key.toLowerCase()]);
 });
