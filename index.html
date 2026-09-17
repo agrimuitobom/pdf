@@ -243,6 +243,23 @@ select,input[type=number]{
 @keyframes sp{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.spin{animation-duration:2.4s}}
 
+#pwask{
+  position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;
+  background:rgba(12,16,22,.55);backdrop-filter:blur(2px);
+}
+#pwask .card{
+  background:var(--surface);color:var(--ink);padding:20px 22px;border-radius:10px;
+  box-shadow:var(--shadow-md);width:min(360px,calc(100vw - 32px));
+}
+#pwask .ttl{font-size:14px;font-weight:700;margin-bottom:6px}
+#pwask .msg{font-size:12px;color:var(--ink-2);margin-bottom:12px;line-height:1.6}
+#pwask .msg.err{color:var(--danger)}
+#pwask input{
+  width:100%;box-sizing:border-box;font:inherit;font-size:14px;padding:8px 10px;
+  border:1px solid var(--line);border-radius:var(--r);background:var(--surface-2);color:var(--ink);
+}
+#pwask .row{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+
 .sheetguide{
   color:#c9d1db;font-size:11.5px;text-align:center;padding:0 16px 6px;
 }
@@ -442,6 +459,48 @@ function syncUndo(){
   $("btnRedo").disabled = !S.future.length;
 }
 
+/* ------------------------------------------------------ パスワード入力 */
+function askPassword(fileName, retry){
+  return new Promise(function(resolve){
+    var back = document.createElement("div"); back.id = "pwask";
+    back.innerHTML =
+      '<div class="card" role="dialog" aria-modal="true" aria-labelledby="pwttl">' +
+        '<div class="ttl" id="pwttl">パスワードが必要です</div>' +
+        '<div class="msg"></div>' +
+        '<input type="password" autocomplete="current-password" aria-label="パスワード">' +
+        '<div class="row">' +
+          '<button class="btn ghost" data-a="cancel">キャンセル</button>' +
+          '<button class="btn primary" data-a="ok">開く</button>' +
+        '</div>' +
+      '</div>';
+    var msg = back.querySelector(".msg");
+    msg.textContent = retry
+      ? "パスワードが違います。もう一度入力してください。"
+      : "「" + fileName + "」はパスワードで保護されています。";
+    if (retry) msg.className = "msg err";
+    var input = back.querySelector("input");
+    var done = false;
+    function finish(v){
+      if (done) return;
+      done = true;
+      back.remove();
+      resolve(v);
+    }
+    back.addEventListener("click", function(e){
+      var a = e.target.closest("[data-a]");
+      if (!a) return;
+      finish(a.dataset.a === "ok" ? input.value : null);
+    });
+    back.addEventListener("keydown", function(e){
+      e.stopPropagation();
+      if (e.key === "Enter"){ e.preventDefault(); finish(input.value); }
+      if (e.key === "Escape"){ e.preventDefault(); finish(null); }
+    });
+    document.body.appendChild(back);
+    input.focus();
+  });
+}
+
 /* -------------------------------------------------------------- importing */
 var pageCache = new Map();
 function getPdfPage(p){
@@ -455,7 +514,24 @@ function getPdfPage(p){
 
 async function openBytes(bytes, name, replace){
   var id = "d" + (++S.docSeq);
-  var pdf = await pdfjsLib.getDocument({data: bytes.slice(0), isEvalSupported:false}).promise;
+  var task = pdfjsLib.getDocument({data: bytes.slice(0), isEvalSupported:false});
+  var INCORRECT = (pdfjsLib.PasswordResponses && pdfjsLib.PasswordResponses.INCORRECT_PASSWORD) || 2;
+  var cancelled = false;
+  task.onPassword = function(cb, reason){
+    busy(null);                               // 読み込み中の表示を一旦どける
+    askPassword(name, reason === INCORRECT).then(function(pw){
+      if (pw === null){ cancelled = true; task.destroy(); return; }
+      busy("PDFを読み込んでいます…");
+      cb(pw);
+    });
+  };
+  var pdf;
+  try {
+    pdf = await task.promise;
+  } catch(e){
+    if (cancelled){ var ce = new Error("cancelled"); ce.cancelled = true; throw ce; }
+    throw e;
+  }
   S.docs.set(id, {name: name, bytes: bytes, pdf: pdf});
   var added = [];
   for (var i = 0; i < pdf.numPages; i++){
@@ -480,15 +556,23 @@ async function handleFiles(list, replace){
   });
   if (!files.length){ toast("PDFファイルを選んでください"); return; }
   busy("PDFを読み込んでいます…");
+  var opened = 0, skipped = 0;
   try{
     for (var i=0;i<files.length;i++){
       var buf = new Uint8Array(await files[i].arrayBuffer());
-      await openBytes(buf, files[i].name, replace && i===0);
+      try{
+        await openBytes(buf, files[i].name, replace && opened===0);
+        opened++;
+      }catch(err){
+        if (!err || !err.cancelled) throw err;   // パスワード入力の取り消しは飛ばして次へ
+        skipped++;
+      }
     }
-    toast(files.length + "件のPDFを読み込みました");
+    if (opened) toast(opened + "件のPDFを読み込みました" + (skipped ? "（" + skipped + "件は取り消し）" : ""));
+    else if (skipped) toast("読み込みをキャンセルしました");
   }catch(err){
     console.error(err);
-    toast("読み込めませんでした。パスワード付きPDFかもしれません");
+    toast("読み込めませんでした。壊れているPDFかもしれません");
   }finally{ busy(null); }
 }
 
@@ -1079,9 +1163,6 @@ var REDACT_DPI = 200;
 function hasRedaction(p){
   return !!(p.annots && p.annots.some(function(a){ return a.t === "white"; }));
 }
-function needsFlatten(p){
-  return !p.blank && hasRedaction(p);
-}
 async function flattenPage(out, p){
   var scale = REDACT_DPI / 72;
   var d = dispSize(p, 1);                       // 回転を反映したページ寸法(pt)
@@ -1107,17 +1188,37 @@ async function flattenPage(out, p){
   return target;
 }
 
+/* 元のページをそのままコピーできるか調べる。パスワード付きPDFは pdf-lib が
+   復号できず、読み込みは通ってもページのコピーで失敗する。使い捨ての文書に
+   1ページ写してみて確かめ、駄目なら画像として書き出す。 */
+async function loadSource(srcCache, docId){
+  if (!srcCache.has(docId)){
+    var loaded = null;
+    try {
+      loaded = await PDFLib.PDFDocument.load(S.docs.get(docId).bytes,
+                                             {ignoreEncryption:true, updateMetadata:false});
+      var probe = await PDFLib.PDFDocument.create();
+      await probe.copyPages(loaded, [0]);
+    } catch(e){ loaded = null; }
+    srcCache.set(docId, loaded);
+  }
+  return srcCache.get(docId);
+}
+
 async function buildPdf(list, onProgress){
   var PDFDocument = PDFLib.PDFDocument, degrees = PDFLib.degrees;
   var out = await PDFDocument.create();
   var srcCache = new Map(), stamps = new Map();
   var mctx = document.createElement("canvas").getContext("2d");  // 文字幅の計測用
+  var redacted = 0, locked = 0;
   for (var i=0;i<list.length;i++){
     var p = list[i];
     if (onProgress) onProgress(i, list.length);
-    var target;
-    if (needsFlatten(p)){
+    var target, src = null;
+    if (!p.blank) src = await loadSource(srcCache, p.docId);
+    if (!p.blank && (hasRedaction(p) || !src)){
       await flattenPage(out, p);
+      if (!src) locked++; else redacted++;
       await new Promise(function(r){ setTimeout(r, 0); });
       continue;
     }
@@ -1125,11 +1226,6 @@ async function buildPdf(list, onProgress){
       target = out.addPage([p.pw, p.ph]);
       if (p.rot) target.setRotation(degrees(((p.rot % 360) + 360) % 360));
     } else {
-      var src = srcCache.get(p.docId);
-      if (!src){
-        src = await PDFDocument.load(S.docs.get(p.docId).bytes, {ignoreEncryption:true, updateMetadata:false});
-        srcCache.set(p.docId, src);
-      }
       var copied = await out.copyPages(src, [p.srcIndex]);
       target = copied[0];
       out.addPage(target);
@@ -1141,7 +1237,7 @@ async function buildPdf(list, onProgress){
     await new Promise(function(r){ setTimeout(r, 0); });
   }
   out.setProducer("PDF工房");
-  return await out.save({useObjectStreams:false});
+  return {bytes: await out.save({useObjectStreams:false}), redacted: redacted, locked: locked};
 }
 /* 注釈はできるかぎりベクターとして書き出す。ページ全体を画像化しないので、
    元の文字は選択・検索できるまま、書き込みも拡大してぼやけない。 */
@@ -1235,16 +1331,18 @@ async function exportPdf(onlySelected){
   if (!list.length){ toast("書き出すページがありません"); return; }
   busy("PDFを作成しています…");
   try{
-    var bytes = await buildPdf(list, function(i,n){ busy("PDFを作成しています… " + (i+1) + " / " + n); });
+    var built = await buildPdf(list, function(i,n){ busy("PDFを作成しています… " + (i+1) + " / " + n); });
     var first = S.docs.size ? Array.from(S.docs.values())[0].name : "document.pdf";
     var base = first.replace(/\.pdf$/i, "");
     var name = base + (onlySelected ? "_抜粋" : "_編集") + ".pdf";
-    var blob = new Blob([bytes], {type:"application/pdf"});
+    var blob = new Blob([built.bytes], {type:"application/pdf"});
     busy(null);
     await saveFile(name, blob);
-    var n = list.filter(needsFlatten).length;
-    if (n) setTimeout(function(){
-      toast("白塗りした" + n + "ページは、文字データごと消すため画像にしました", 4200);
+    setTimeout(function(){
+      if (built.locked)
+        toast("パスワード付きPDFの" + built.locked + "ページは、そのままコピーできないため画像にしました", 4600);
+      else if (built.redacted)
+        toast("白塗りした" + built.redacted + "ページは、文字データごと消すため画像にしました", 4200);
     }, 2000);
   }catch(err){
     console.error(err); busy(null);
