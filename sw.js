@@ -1,12 +1,17 @@
 /* PDF工房 — オフラインで使えるようにするキャッシュ */
-const CACHE = "pdf-koubou-v1";
+const CACHE = "pdf-koubou-v2";
 const ASSETS = [
   "./", "./index.html",
   "./vendor/pdf.min.js", "./vendor/pdf.worker.min.js", "./vendor/pdf-lib.min.js",
   "./manifest.webmanifest", "./icon.svg", "./icon-192.png", "./icon-512.png"
 ];
 self.addEventListener("install", e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // 1つでも取得に失敗すると addAll は全体が失敗するので、個別に入れる
+  e.waitUntil(
+    caches.open(CACHE)
+      .then(c => Promise.all(ASSETS.map(a => c.add(a).catch(() => {}))))
+      .then(() => self.skipWaiting())
+  );
 });
 self.addEventListener("activate", e => {
   e.waitUntil(caches.keys().then(ks =>
