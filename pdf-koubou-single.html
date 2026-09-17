@@ -229,6 +229,7 @@ select,input[type=number]{
 .pageops{display:flex;gap:2px;padding:6px 8px;border-bottom:1px solid var(--line-soft);flex-wrap:wrap}
 .pageops .btn{padding:5px;box-shadow:none;border-color:transparent;background:transparent}
 .pageops .btn:hover{background:var(--surface-2)}
+.pageops .btn .lb{display:none}
 .thumbs{flex:1 1 auto;overflow-y:auto;padding:10px 8px 24px;display:flex;flex-direction:column;gap:9px}
 
 .thumb{position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;user-select:none}
@@ -360,23 +361,150 @@ select,input[type=number]{
   color:#c9d1db;font-size:11.5px;text-align:center;padding:0 16px 6px;
 }
 
-@media (max-width:760px){
-  .main{flex-direction:column}
-  .rail{width:auto;border-right:none;border-bottom:1px solid var(--line);max-height:186px}
-  .thumbs{flex-direction:row;overflow-x:auto;overflow-y:hidden;padding:8px}
-  .thumb{flex:none;width:86px}
-  .thumb .shot.empty{width:86px;height:118px}
-  .toolbar{gap:8px;padding:6px 10px}
-  .tool .lb{display:none}
-  .tool{padding:7px}
-  .appbar{padding:6px 10px;padding-top:calc(6px + env(safe-area-inset-top,0px))}
-  .brand span{display:none}
+/* ---------- 文脈メニュー・浮動バー ---------- */
+.menu{
+  position:fixed;z-index:75;min-width:210px;padding:5px 0;
+  background:var(--surface);border:1px solid var(--line);border-radius:9px;
+  box-shadow:var(--shadow-md);color:var(--ink);
 }
+.menu .mh{font-size:11px;color:var(--ink-2);padding:4px 14px 6px}
+.menu button{
+  display:flex;align-items:center;gap:10px;width:100%;
+  padding:8px 14px;border:0;background:transparent;color:inherit;
+  font:inherit;font-size:13px;text-align:left;cursor:pointer;
+}
+.menu button:hover:not(:disabled){background:var(--surface-2)}
+.menu button:disabled{opacity:.4;cursor:default}
+.menu button svg{width:16px;height:16px;flex:none;color:var(--ink-2)}
+.menu button.danger{color:var(--danger)}
+.menu button.danger svg{color:var(--danger)}
+.menu .mk{margin-left:auto;font-size:11px;color:var(--ink-3)}
+.menu hr{border:0;border-top:1px solid var(--line-soft);margin:5px 0}
+
+.floatbar{
+  position:absolute;z-index:6;display:flex;align-items:center;gap:3px;
+  padding:5px 7px;background:var(--surface);border:1px solid var(--line);
+  border-radius:9px;box-shadow:var(--shadow-md);
+}
+.floatbar .fb{
+  display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 10px;
+  border:0;border-radius:6px;background:transparent;color:var(--ink);
+  font:inherit;font-size:12.5px;cursor:pointer;white-space:nowrap;
+}
+.floatbar .fb:hover{background:var(--surface-2)}
+.floatbar .fb.danger{color:var(--danger)}
+.floatbar .fb svg{width:16px;height:16px;flex:none}
+.floatbar label{font-size:11px;color:var(--ink-2);padding:0 2px}
+.floatbar input[type=range]{width:64px}
+.floatbar .tip{
+  position:absolute;left:var(--tipx,24px);bottom:-6px;width:11px;height:11px;
+  background:var(--surface);border-right:1px solid var(--line);border-bottom:1px solid var(--line);
+  transform:rotate(45deg);
+}
+.floatbar.below .tip{bottom:auto;top:-6px;transform:rotate(225deg)}
+
+/* ---------- ページ一覧の開閉 ---------- */
+.main{position:relative}
+.main.rail-closed .rail{display:none}
+#railOpen{
+  position:absolute;left:10px;top:10px;z-index:5;
+  padding:5px 9px;font-size:12px;
+}
+.scrim{position:absolute;inset:0;z-index:9;background:rgba(12,16,22,.45)}
+.docmeta{display:none;flex-direction:column;justify-content:center;min-width:0;flex:1 1 auto}
+.docmeta b{font-size:13px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.docmeta span{font-size:10.5px;color:var(--ink-2)}
+.only-narrow{display:none}
+
+/* ---------- 狭い画面 ---------- */
+@media (max-width:760px){
+  .only-narrow{display:inline-flex}
+  .appbar{
+    flex-wrap:nowrap;gap:2px;padding:4px 6px;
+    padding-top:calc(4px + env(safe-area-inset-top,0px));
+  }
+  .appbar .brand,
+  .appbar #btnOpen,.appbar #btnAdd,.appbar #btnUndo,.appbar #btnRedo,
+  .appbar .field,.appbar .sep,.appbar #btnHelp{display:none}
+  .appbar #findBox.open-narrow{
+    display:flex;position:absolute;left:6px;right:6px;
+    top:calc(100% - 2px);z-index:20;
+    background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+    padding:5px 8px;box-shadow:var(--shadow-md);
+  }
+  .appbar{position:relative}
+  .appbar #findBox.open-narrow input{flex:1 1 auto;width:auto}
+  .appbar .spacer{display:none}
+  .docmeta{display:flex}
+  .appbar .btn{min-width:40px;min-height:40px;justify-content:center}
+  .appbar .btn.primary .lb{display:none}
+  .appbar #btnExport{padding:8px 12px}
+
+  /* 道具は親指の届く下段へ */
+  #app{padding-bottom:0}
+  .main{order:2;flex:1 1 auto}
+  .toolbar{
+    order:3;flex:none;flex-wrap:nowrap;gap:0;padding:0;
+    border-bottom:none;border-top:1px solid var(--line);
+    flex-direction:column;align-items:stretch;
+    padding-bottom:env(safe-area-inset-bottom,0px);
+  }
+  .toolbar .sep{display:none}
+  .props{
+    order:1;gap:10px;padding:6px 12px;border-bottom:1px solid var(--line-soft);
+    flex-wrap:nowrap;overflow-x:auto;
+  }
+  .props.empty{display:none}
+  .props .field>label{white-space:nowrap}
+  .props #btnImage{display:none}
+  .sw{width:24px;height:24px}
+  input[type=range]{width:78px}
+  .toolwrap{order:2;position:relative;min-width:0}
+  .toolwrap::after{
+    content:"";position:absolute;right:0;top:0;bottom:0;width:26px;
+    background:linear-gradient(to right,rgba(255,255,255,0),var(--surface) 72%);
+    pointer-events:none;
+  }
+  .tools{
+    gap:0;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding:3px 6px 5px;
+  }
+  .tools::-webkit-scrollbar{display:none}
+  .tool{
+    flex:none;width:46px;padding:5px 0;gap:3px;
+    flex-direction:column;align-items:center;justify-content:center;
+  }
+  .tool svg{width:20px;height:20px}
+  .tool .lb{display:block;font-size:9.5px;letter-spacing:-.02em}
+
+  /* ページ一覧は引き出し */
+  .rail{
+    position:absolute;left:0;top:0;bottom:0;z-index:10;
+    width:min(310px,84vw);border-right:1px solid var(--line);
+    box-shadow:0 0 40px rgba(21,32,43,.35);
+    transform:translateX(-101%);transition:transform .18s ease-out;
+  }
+  .main.rail-open .rail{transform:none}
+  .main.rail-closed .rail{display:flex}
+  #railOpen{display:none}
+  .rail-head{height:52px}
+  .thumbs{
+    display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:14px;padding:14px 12px 28px;align-content:start;
+  }
+  .thumb{width:auto}
+  .thumb .shot.empty{width:100%;height:150px}
+  .pageops{gap:0;padding:4px 6px}
+  .pageops .btn{flex:1 1 0;flex-direction:column;gap:3px;padding:7px 0;font-size:10px}
+  .pageops .btn .lb{display:block}
+}
+@media (prefers-reduced-motion:reduce){ .rail{transition:none} }
 </style>
 
 <div id="app">
   <div class="appbar">
+    <button class="btn icon only-narrow" id="btnPages" aria-label="ページ一覧を開く"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
     <div class="brand"><b>PDF工房</b><span>ブラウザで完結</span></div>
+    <div class="docmeta only-narrow" id="docMeta"><b id="docName">PDFを開いてください</b><span id="docSub"></span></div>
     <button class="btn" id="btnOpen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h6l2 2h10v10H3z"/></svg>開く</button>
     <button class="btn" id="btnAdd"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>PDFを追加</button>
     <span class="sep" style="height:24px"></span>
@@ -398,12 +526,14 @@ select,input[type=number]{
       <button class="btn icon" id="findNext" aria-label="次の一致" title="次の一致 (Enter)">›</button>
     </div>
     <div class="spacer"></div>
+    <button class="btn icon only-narrow" id="btnFindNarrow" aria-label="文字を探す"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="6"/><path d="M15.5 15.5L20 20"/></svg></button>
     <button class="btn icon" id="btnHelp" title="使い方とショートカット (?)" aria-label="使い方とショートカット">?</button>
-    <button class="btn primary" id="btnExport"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg>PDFを書き出す</button>
+    <button class="btn primary" id="btnExport"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg><span class="lb">PDFを書き出す</span></button>
+    <button class="btn icon only-narrow" id="btnMore" aria-label="その他のメニュー"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg></button>
   </div>
 
   <div class="toolbar">
-    <div class="tools" id="tools"></div>
+    <div class="toolwrap"><div class="tools" id="tools"></div></div>
     <span class="sep" style="height:22px"></span>
     <div class="props">
       <div class="field" id="fColor"><label>色</label><div class="swatches" id="swatches"></div></div>
@@ -414,24 +544,26 @@ select,input[type=number]{
         </select><span class="hint">pt</span>
       </div>
       <button class="btn" id="btnImage"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M4 16l4.5-4.5 3 3 4-5L20 15"/></svg>画像・印鑑</button>
-      <span class="hint" id="tipLine"></span>
     </div>
   </div>
 
-  <div class="main">
-    <aside class="rail">
+  <div class="main" id="main">
+    <button class="btn" id="railOpen" hidden aria-label="ページ一覧を開く"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 6l6 6-6 6"/></svg><span class="lb">ページ</span></button>
+    <div class="scrim" id="scrim" hidden></div>
+    <aside class="rail" id="rail">
       <div class="rail-head">
         <span class="ttl">ページ</span>
         <span class="hint" id="pjump"><input type="text" id="pgoIn" inputmode="numeric" aria-label="表示するページ番号" value="" disabled><span id="pcount">/ 0</span></span>
+        <button class="btn icon" id="railToggle" title="ページ一覧を閉じる" aria-label="ページ一覧を閉じる"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 6l-6 6 6 6"/></svg></button>
       </div>
       <div class="pageops">
-        <button class="btn icon" id="opRotL" title="左に90°回転" aria-label="左に回転"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9a8 8 0 1 1 2.5 7M3 4v5h5"/></svg></button>
-        <button class="btn icon" id="opRotR" title="右に90°回転" aria-label="右に回転"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 9a8 8 0 1 0-2.5 7M21 4v5h-5"/></svg></button>
-        <button class="btn icon" id="opUp" title="前へ移動" aria-label="前へ移動"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
-        <button class="btn icon" id="opDown" title="後ろへ移動" aria-label="後ろへ移動"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg></button>
-        <button class="btn icon" id="opDup" title="複製" aria-label="複製"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M8 8h12v12H8z"/><path d="M4 16V4h12"/></svg></button>
-        <button class="btn icon" id="opBlank" title="白紙を後ろに追加" aria-label="白紙を追加"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h9l5 5v11H5z"/><path d="M12 11v6M9 14h6"/></svg></button>
-        <button class="btn icon" id="opDel" title="削除" aria-label="削除" style="color:var(--danger)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13"/></svg></button>
+        <button class="btn icon" id="opRotL" title="左に90°回転" aria-label="左に回転"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9a8 8 0 1 1 2.5 7M3 4v5h5"/></svg><span class="lb">左回転</span></button>
+        <button class="btn icon" id="opRotR" title="右に90°回転" aria-label="右に回転"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 9a8 8 0 1 0-2.5 7M21 4v5h-5"/></svg><span class="lb">右回転</span></button>
+        <button class="btn icon" id="opUp" title="前へ移動" aria-label="前へ移動"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg><span class="lb">前へ</span></button>
+        <button class="btn icon" id="opDown" title="後ろへ移動" aria-label="後ろへ移動"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg><span class="lb">後ろへ</span></button>
+        <button class="btn icon" id="opDup" title="複製" aria-label="複製"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M8 8h12v12H8z"/><path d="M4 16V4h12"/></svg><span class="lb">複製</span></button>
+        <button class="btn icon" id="opBlank" title="白紙を後ろに追加" aria-label="白紙を追加"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h9l5 5v11H5z"/><path d="M12 11v6M9 14h6"/></svg><span class="lb">白紙</span></button>
+        <button class="btn icon" id="opDel" title="削除" aria-label="削除" style="color:var(--danger)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13"/></svg><span class="lb">削除</span></button>
       </div>
       <div class="thumbs" id="thumbs" role="listbox" aria-label="ページ一覧" aria-multiselectable="true" tabindex="0"></div>
     </aside>
@@ -622,6 +754,100 @@ function askRestore(when){
       back.querySelector('[data-a="yes"]').focus();
     }
   );
+}
+
+/* ------------------------------------------------------------ 文脈メニュー */
+var ICON = {
+  rotL: '<path d="M3 9a8 8 0 1 1 2.5 7M3 4v5h5"/>',
+  rotR: '<path d="M21 9a8 8 0 1 0-2.5 7M21 4v5h-5"/>',
+  up:   '<path d="M12 19V5M6 11l6-6 6 6"/>',
+  down: '<path d="M12 5v14M6 13l6 6 6-6"/>',
+  dup:  '<path d="M8 8h12v12H8z"/><path d="M4 16V4h12"/>',
+  blank:'<path d="M5 4h9l5 5v11H5z"/><path d="M12 11v6M9 14h6"/>',
+  del:  '<path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13"/>',
+  out:  '<path d="M12 4v11M7 11l5 5 5-5M5 20h14"/>',
+  open: '<path d="M3 7h6l2 2h10v10H3z"/>',
+  add:  '<path d="M12 5v14M5 12h14"/>',
+  undo: '<path d="M4 9h10a5 5 0 0 1 0 10H8M4 9l4-4M4 9l4 4"/>',
+  redo: '<path d="M20 9H10a5 5 0 0 0 0 10h6M20 9l-4-4M20 9l-4 4"/>',
+  fit:  '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  img:  '<path d="M4 5h16v14H4z"/><path d="M4 16l4.5-4.5 3 3 4-5L20 15"/>',
+  help: '<circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 1 1 3.2 2.6c-.6.2-.8.7-.8 1.3v.6M12 17.2v.2"/>'
+};
+function svg(d){
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" ' +
+         'stroke-linecap="round" stroke-linejoin="round">' + d + '</svg>';
+}
+var openMenu = null;
+function closeMenu(){
+  if (!openMenu) return;
+  openMenu.remove();
+  openMenu = null;
+}
+/* items: {label, icon, key, danger, disabled, run} / "-" で区切り線 */
+function showMenu(x, y, items, head){
+  closeMenu();
+  var el = document.createElement("div");
+  el.className = "menu";
+  el.setAttribute("role", "menu");
+  if (head) el.innerHTML = '<div class="mh">' + head + '</div>';
+  items.forEach(function(it){
+    if (it === "-"){ el.appendChild(document.createElement("hr")); return; }
+    var b = document.createElement("button");
+    b.type = "button";
+    b.setAttribute("role", "menuitem");
+    if (it.danger) b.className = "danger";
+    if (it.disabled) b.disabled = true;
+    b.innerHTML = (it.icon ? svg(it.icon) : '<span style="width:16px"></span>') +
+                  '<span>' + it.label + '</span>' +
+                  (it.key ? '<span class="mk">' + it.key + '</span>' : "");
+    b.addEventListener("click", function(){
+      closeMenu();
+      if (it.run) it.run();
+    });
+    el.appendChild(b);
+  });
+  document.body.appendChild(el);
+  // 画面からはみ出さない位置に寄せる
+  var r = el.getBoundingClientRect();
+  var left = Math.min(x, window.innerWidth  - r.width  - 8);
+  var top  = Math.min(y, window.innerHeight - r.height - 8);
+  el.style.left = Math.max(8, left) + "px";
+  el.style.top  = Math.max(8, top)  + "px";
+  openMenu = el;
+  var first = el.querySelector("button:not(:disabled)");
+  if (first) first.focus();
+  return el;
+}
+document.addEventListener("pointerdown", function(e){
+  if (openMenu && !e.target.closest(".menu")) closeMenu();
+}, true);
+window.addEventListener("blur", closeMenu);
+document.addEventListener("keydown", function(e){
+  if (openMenu && e.key === "Escape"){ e.stopPropagation(); closeMenu(); }
+}, true);
+
+/* ページに対するメニュー。ページ一覧でも本文でも同じ内容を出す。 */
+function pageMenu(p, x, y){
+  var i = S.pages.indexOf(p);
+  if (i < 0) return;
+  if (!S.sel.has(p.uid)) selectPage(p.uid, false, false);
+  var n = S.sel.size;
+  var head = n > 1 ? (n + "ページを選択中") : ((i + 1) + "ページ目");
+  showMenu(x, y, [
+    {label:"左に90°回転", icon:ICON.rotL, run:function(){ rotateSel(-1); }},
+    {label:"右に90°回転", icon:ICON.rotR, run:function(){ rotateSel(1); }},
+    "-",
+    {label:"前へ移動", icon:ICON.up,   disabled:i === 0,                 run:function(){ moveSel(-1); }},
+    {label:"後ろへ移動", icon:ICON.down, disabled:i === S.pages.length-1, run:function(){ moveSel(1); }},
+    {label:"複製", icon:ICON.dup,   run:dupSel},
+    {label:"白紙を後ろに追加", icon:ICON.blank, run:addBlank},
+    "-",
+    {label:(n > 1 ? "この" + n + "ページだけ書き出す" : "このページだけ書き出す"),
+     icon:ICON.out, run:function(){ askExport(true); }},
+    "-",
+    {label:"削除", icon:ICON.del, danger:true, key:"Delete", run:deleteSel}
+  ], head);
 }
 
 /* -------------------------------------------- 使い方・ショートカット・権利表記 */
@@ -919,6 +1145,7 @@ async function handleFiles(list, replace){
 /* -------------------------------------------------------------- rendering */
 function buildSheets(){
   if (S.editing) commitText();
+  fbar = null;                 // シートごと作り直すので参照を捨てる
   sheets.textContent = "";
   $("emptyStage").hidden = S.pages.length > 0;
   $("pcount").textContent = "/ " + S.pages.length;
@@ -954,18 +1181,33 @@ function refreshToolClass(){
   S.pages.forEach(function(p){
     if (p.el) p.el.className = "sheet t-" + toolClass();
   });
-  $("fSize").style.display = (S.tool === "text") ? "" : "none";
-  $("fWidth").style.display = (S.tool === "pen" || S.tool === "marker" || S.tool === "rect" || S.tool === "line") ? "" : "none";
-  $("fColor").style.display = (S.tool === "erase" || S.tool === "select") ? "none" : "";
+  /* 書き込みを選んでいるときは、その書き込みの設定を出す */
+  var a = S.active ? S.active.a : null;
+  var drawTool = (S.tool === "pen" || S.tool === "marker" || S.tool === "rect" || S.tool === "line");
+  $("fSize").style.display  = (a ? (a.t === "text")   : (S.tool === "text")) ? "" : "none";
+  $("fWidth").style.display = (a ? annotWidth(a)      : drawTool) ? "" : "none";
+  $("fColor").style.display = (a ? annotColors(a)     : !(S.tool === "erase" || S.tool === "select")) ? "" : "none";
+  if (a){
+    if (a.t === "text") $("selSize").value = String(a.size);
+    if (annotWidth(a)){
+      var wv = (a.t === "marker") ? Math.round(a.w / 4) : a.w;
+      $("rWidth").value = String(wv); $("wLabel").textContent = wv;
+    }
+    syncSwatches();
+  }
+  var props = document.querySelector(".props");
+  var any = ["fColor","fWidth","fSize"].some(function(id){ return $(id).style.display !== "none"; });
+  props.classList.toggle("empty", !any);
 }
 
-var TIPS = {
-  white: '<b>白塗り</b>は文字データごと消します。このページは画像として書き出されます',
-  text:  '元の文字を直す → <b>白塗り</b>で消して <b>テキスト</b>を重ねます'
-};
-function syncTip(){
-  $("tipLine").innerHTML = TIPS[S.tool] ||
-    '元の文字を直す → <b>白塗り</b>で消して <b>テキスト</b>を重ねます';
+/* 常時表示の説明文はやめ、白塗りを初めて選んだときだけ一度知らせる。
+   見た目を隠すだけだと誤解されると実害が出るため、ここだけは伝える。 */
+var toldWhite = false;
+function tipForTool(k){
+  if (k === "white" && !toldWhite){
+    toldWhite = true;
+    toast("白塗りは文字データごと消します。このページは画像として書き出されます", 4600);
+  }
 }
 
 var io = new IntersectionObserver(function(entries){
@@ -1149,7 +1391,145 @@ function paintSheet(p){
     ctx.restore();
   }
 }
-function repaintAll(){ S.pages.forEach(function(p){ if (p.rendered) paintSheet(p); }); }
+function repaintAll(){
+  S.pages.forEach(function(p){ if (p.rendered) paintSheet(p); });
+  refreshToolClass();
+  syncFloatbar();
+}
+
+/* ------------------------------------------ 選んだ書き込みの上に出る道具 */
+/* 遠くのツールバーまで往復せずに、その場で色・太さ・複製・削除ができる。 */
+var fbar = null, sheetDragging = false;
+function killFloatbar(){
+  if (fbar){ fbar.remove(); fbar = null; }
+}
+function annotColors(a){
+  return a.t !== "white" && a.t !== "image";
+}
+function annotWidth(a){
+  return a.t === "pen" || a.t === "marker" || a.t === "rect" || a.t === "line";
+}
+function buildFloatbar(){
+  var el = document.createElement("div");
+  el.className = "floatbar";
+  el.addEventListener("pointerdown", function(e){ e.stopPropagation(); });
+  return el;
+}
+function syncFloatbar(){
+  var act = S.active;
+  if (!act || !act.p || !act.p.el || S.tool !== "select" || S.editing){ killFloatbar(); return; }
+  if (sheetDragging){ if (fbar) fbar.style.visibility = "hidden"; return; }
+  if (fbar) fbar.style.visibility = "";
+  var p = act.p, a = act.a;
+  if (!fbar){ fbar = buildFloatbar(); }
+
+  /* 中身は注釈の種類に合わせて組み直す */
+  var narrow = window.matchMedia("(max-width:760px)").matches;
+  var sig = a.t + ":" + a.id + ":" + (narrow ? "n" : "w");
+  if (fbar.dataset.sig !== sig){
+    fbar.dataset.sig = sig;
+    fbar.textContent = "";
+    if (!narrow && annotColors(a)){
+      var lb = document.createElement("label"); lb.textContent = "色";
+      var host = document.createElement("div"); host.className = "swatches";
+      host.style.padding = "0 5px";
+      COLORS.forEach(function(c){
+        var b = document.createElement("button");
+        b.type = "button"; b.className = "sw"; b.style.background = c;
+        b.setAttribute("aria-label", "色 " + c);
+        b.dataset.color = c;
+        b.setAttribute("aria-pressed", c === a.c ? "true" : "false");
+        b.addEventListener("click", function(){
+          pushHistory(); a.c = c; S.color = c;
+          syncSwatches(); paintSheet(p); markThumb(p); syncFloatbar();
+        });
+        host.appendChild(b);
+      });
+      fbar.appendChild(lb); fbar.appendChild(host);
+    }
+    if (!narrow && annotWidth(a)){
+      var lw = document.createElement("label"); lw.textContent = "太さ";
+      var rg = document.createElement("input");
+      rg.type = "range"; rg.min = "1"; rg.max = "18"; rg.step = "1";
+      rg.value = String(a.t === "marker" ? Math.round(a.w / 4) : a.w);
+      rg.setAttribute("aria-label", "太さ");
+      rg.addEventListener("pointerdown", function(){ pushHistory(); });
+      rg.addEventListener("input", function(){
+        var v = +rg.value;
+        a.w = (a.t === "marker") ? v * 4 : v;
+        paintSheet(p); markThumb(p);
+      });
+      fbar.appendChild(lw); fbar.appendChild(rg);
+    }
+    if (!narrow && a.t === "text"){
+      var ls = document.createElement("label"); ls.textContent = "文字";
+      var se = document.createElement("select");
+      se.setAttribute("aria-label", "文字の大きさ");
+      [9,10.5,12,14,16,20,24,32].forEach(function(v){
+        var o = document.createElement("option");
+        o.value = String(v); o.textContent = String(v);
+        if (v === a.size) o.selected = true;
+        se.appendChild(o);
+      });
+      se.addEventListener("change", function(){
+        pushHistory(); a.size = parseFloat(se.value); S.size = a.size;
+        $("selSize").value = se.value;
+        paintSheet(p); markThumb(p); syncFloatbar();
+      });
+      fbar.appendChild(ls); fbar.appendChild(se);
+    }
+    var dup = document.createElement("button");
+    dup.type = "button"; dup.className = "fb";
+    dup.innerHTML = svg(ICON.dup) + "<span>複製</span>";
+    dup.addEventListener("click", function(){ duplicateAnnot(p, a); });
+    var del = document.createElement("button");
+    del.type = "button"; del.className = "fb danger";
+    del.innerHTML = svg(ICON.del) + "<span>削除</span>";
+    del.addEventListener("click", function(){ deleteAnnot(p, a); });
+    fbar.appendChild(dup); fbar.appendChild(del);
+    var tip = document.createElement("span"); tip.className = "tip";
+    fbar.appendChild(tip);
+  }
+
+  if (fbar.parentNode !== p.el) p.el.appendChild(fbar);
+
+  /* 選択範囲の上に置く。上が詰まっていれば下に回す。 */
+  var ctx = p.el.querySelector(".anc").getContext("2d");
+  var b = bbox(ctx, a);
+  var c1 = toScreen(p, b.x, b.y), c2 = toScreen(p, b.x + b.w, b.y + b.h);
+  var left = Math.min(c1[0], c2[0]), right = Math.max(c1[0], c2[0]);
+  var top = Math.min(c1[1], c2[1]), bottom = Math.max(c1[1], c2[1]);
+  var w = fbar.offsetWidth, h = fbar.offsetHeight;
+  var cx = (left + right) / 2;
+  var x = clamp(cx - w / 2, 4, Math.max(4, p.el.clientWidth - w - 4));
+  var y = top - h - 12;
+  var below = false;
+  var sheetTop = p.el.getBoundingClientRect().top - stage.getBoundingClientRect().top;
+  if (sheetTop + y < 8){ y = bottom + 12; below = true; }
+  fbar.classList.toggle("below", below);
+  fbar.style.left = Math.round(x) + "px";
+  fbar.style.top  = Math.round(y) + "px";
+  fbar.style.setProperty("--tipx", Math.round(clamp(cx - x - 5, 10, Math.max(10, w - 20))) + "px");
+}
+function duplicateAnnot(p, a){
+  pushHistory();
+  var copy = JSON.parse(JSON.stringify(a));
+  copy.id = ++S.uid;
+  var d = 10;
+  if (copy.p) copy.p = copy.p.map(function(q){ return [q[0] + d, q[1] - d]; });
+  else { copy.x += d; copy.y -= d; }
+  p.annots.push(copy);
+  S.active = {p:p, a:copy};
+  paintSheet(p); markThumb(p); syncFloatbar();
+}
+function deleteAnnot(p, a){
+  pushHistory();
+  var i = p.annots.indexOf(a);
+  if (i >= 0) p.annots.splice(i, 1);
+  S.active = null;
+  killFloatbar();
+  paintSheet(p); markThumb(p);
+}
 
 /* --------------------------------------------- 2本指でのスクロールと拡大縮小 */
 /* 1本目の指は描く、2本目が触れたら描きかけを取り消して画面操作に切り替える。
@@ -1311,6 +1691,7 @@ function currentPageIndex(){
 function syncPageNo(){
   var el = $("pgoIn");
   if (document.activeElement !== el) el.value = S.pages.length ? (currentPageIndex() + 1) : "";
+  if (typeof syncDocMeta === "function") syncDocMeta();
 }
 function syncFindEnabled(){
   $("findIn").disabled = !S.pages.length;
@@ -1335,11 +1716,12 @@ function bindSheet(p, canvas){
       Object.keys(drag.orig).forEach(function(k){ a[k] = drag.orig[k]; });
       histPop(S.history); syncUndo();
     }
-    drag = null; S.active = null;
-    paintSheet(p); markThumb(p);
+    drag = null; S.active = null; sheetDragging = false;
+    paintSheet(p); markThumb(p); syncFloatbar();
   }
   canvas.addEventListener("pointerdown", function(e){
-    if (pinch){ drag = null; return; }     // 2本指の操作中は描き始めない
+    if (pinch){ drag = null; return; }             // 2本指の操作中は描き始めない
+    if (e.button != null && e.button !== 0) return; // 右クリックは描き始めない
     abortSheetDrag = abortDrag;
     if (S.editing) commitText();
     e.preventDefault();   // ブラウザ既定のフォーカス移動を止める（入力欄が閉じてしまうため）
@@ -1364,6 +1746,7 @@ function bindSheet(p, canvas){
         S.active = {p:p, a:hit2};
         pushHistory();
         drag = {mode: near ? "resize" : "move", a: hit2, start: pt, orig: JSON.parse(JSON.stringify(hit2)), box: b};
+        sheetDragging = true;
       } else {
         S.active = null;
         if (e.pointerType === "touch"){
@@ -1394,6 +1777,7 @@ function bindSheet(p, canvas){
     }
     p.annots.push(na);
     drag = {mode:"create", a:na, start:pt};
+    sheetDragging = true;
     paintSheet(p);
   });
 
@@ -1444,7 +1828,8 @@ function bindSheet(p, canvas){
   function endDrag(){
     if (!drag) return;
     abortSheetDrag = null;
-    if (drag.mode === "pan"){ drag = null; return; }
+    sheetDragging = false;
+    if (drag.mode === "pan"){ drag = null; syncFloatbar(); return; }
     var a = drag.a;
     if (drag.mode === "create" && a.t !== "pen" && a.t !== "marker"
         && Math.abs(a.w2) < 3 && Math.abs(a.h2) < 3){
@@ -1454,7 +1839,7 @@ function bindSheet(p, canvas){
       S.active = {p:p, a:a};
     }
     drag = null;
-    paintSheet(p); markThumb(p);
+    paintSheet(p); markThumb(p); syncFloatbar();
   }
   canvas.addEventListener("pointerup", endDrag);
   canvas.addEventListener("pointercancel", endDrag);
@@ -1938,7 +2323,7 @@ function sourceName(){
 }
 
 /* ファイル名と範囲を決めてから書き出す */
-function askExport(){
+function askExport(preferSel){
   if (!S.pages.length){ toast("書き出すページがありません"); return; }
   var base = sourceName().replace(/\.pdf$/i, "");
   var n = S.sel.size, total = S.pages.length;
@@ -1948,10 +2333,10 @@ function askExport(){
       '<div class="ttl" id="exttl">PDFを書き出す</div>' +
       '<div class="msg">ファイル名と範囲を選んでください。</div>' +
       '<div class="fname"><input type="text" aria-label="ファイル名"><span>.pdf</span></div>' +
-      '<label class="pick"><input type="radio" name="rg" value="all" checked>' +
+      '<label class="pick"><input type="radio" name="rg" value="all"' + ((canSel && preferSel) ? '' : ' checked') + '>' +
         'すべてのページ（' + total + 'ページ）</label>' +
       '<label class="pick' + (canSel ? '' : ' off') + '">' +
-        '<input type="radio" name="rg" value="sel"' + (canSel ? '' : ' disabled') + '>' +
+        '<input type="radio" name="rg" value="sel"' + (canSel ? ((preferSel) ? ' checked' : '') : ' disabled') + '>' +
         (canSel ? '選択した' + n + 'ページだけ' : '選択したページだけ（ページ一覧で選ぶと使えます）') + '</label>' +
       '<div class="row">' +
         '<button class="btn ghost" data-a="cancel">キャンセル</button>' +
@@ -1960,7 +2345,7 @@ function askExport(){
     '</div>',
     function(back, finish){
       var input = back.querySelector('input[type="text"]');
-      input.value = base + (canSel ? "_抜粋" : "_編集");
+      input.value = base + ((canSel && preferSel) ? "_抜粋" : "_編集");
       function go(){
         var name = (input.value || base).trim().replace(/[\\/:*?"<>|]/g, "_");
         var sel = back.querySelector('input[value="sel"]').checked;
@@ -2063,7 +2448,8 @@ function setTool(k){
   });
   if (k !== "select") { S.active = null; repaintAll(); }
   refreshToolClass();
-  syncTip();
+  syncFloatbar();
+  tipForTool(k);
 }
 function buildSwatches(){
   var host = $("swatches");
@@ -2071,15 +2457,30 @@ function buildSwatches(){
     var b = document.createElement("button");
     b.className = "sw"; b.type = "button"; b.style.background = c;
     b.setAttribute("aria-label", "色 " + c);
-    b.setAttribute("aria-pressed", c === S.color ? "true" : "false");
+    b.dataset.color = c;
     b.addEventListener("click", function(){
       S.color = c;
-      Array.from(host.children).forEach(function(x){ x.setAttribute("aria-pressed","false"); });
-      b.setAttribute("aria-pressed","true");
-      if (S.active){ pushHistory(); S.active.a.c = c; paintSheet(S.active.p); }
+      if (S.active){
+        pushHistory(); S.active.a.c = c;
+        paintSheet(S.active.p); markThumb(S.active.p);
+      }
+      syncSwatches();
     });
     host.appendChild(b);
   });
+  syncSwatches();
+}
+/* ツールバーと浮動バー、両方の選択状態を合わせる */
+function syncSwatches(){
+  var cur = S.active ? S.active.a.c : S.color;
+  Array.from($("swatches").children).forEach(function(b){
+    b.setAttribute("aria-pressed", b.dataset.color === cur ? "true" : "false");
+  });
+  if (fbar){
+    Array.from(fbar.querySelectorAll(".sw")).forEach(function(b){
+      b.setAttribute("aria-pressed", b.dataset.color === cur ? "true" : "false");
+    });
+  }
 }
 
 /* -------------------------------------------------------------- image stamp */
@@ -2257,6 +2658,105 @@ stage.addEventListener("scroll", function(){
   pnTimer = setTimeout(syncPageNo, 120);
 });
 
+/* ------------------------------------------------ 右クリック（長押しでも） */
+thumbsEl.addEventListener("contextmenu", function(e){
+  var el = e.target.closest(".thumb");
+  if (!el) return;
+  e.preventDefault();
+  var p = byUid(+el.dataset.uid);
+  if (p) pageMenu(p, e.clientX, e.clientY);
+});
+sheets.addEventListener("contextmenu", function(e){
+  var el = e.target.closest(".sheet");
+  if (!el) return;
+  e.preventDefault();
+  var p = byUid(+el.dataset.uid);
+  if (!p) return;
+  // 書き込みの上なら、その書き込みへのメニューを出す
+  var c = el.querySelector(".anc"), r = c.getBoundingClientRect();
+  var hit = hitTest(p, c.getContext("2d"), toPdf(p, e.clientX - r.left, e.clientY - r.top));
+  if (hit){
+    S.active = {p:p, a:hit};
+    setTool("select");
+    repaintAll();
+    showMenu(e.clientX, e.clientY, [
+      {label:"複製", icon:ICON.dup, run:function(){ duplicateAnnot(p, hit); }},
+      {label:"削除", icon:ICON.del, danger:true, key:"Delete", run:function(){ deleteAnnot(p, hit); }}
+    ], "書き込み");
+    return;
+  }
+  pageMenu(p, e.clientX, e.clientY);
+});
+
+/* ------------------------------------------------ ページ一覧の開閉 */
+var railClosed = false;
+function syncRail(){
+  var m = $("main");
+  var narrow = window.matchMedia("(max-width:760px)").matches;
+  m.classList.toggle("rail-closed", railClosed && !narrow);
+  $("railOpen").hidden = !(railClosed && !narrow);
+  if (!narrow){ m.classList.remove("rail-open"); $("scrim").hidden = true; }
+}
+function setRailClosed(v){
+  railClosed = v;
+  try { localStorage.setItem("pdfk.rail", v ? "1" : "0"); } catch(e){}
+  syncRail();
+}
+try { railClosed = localStorage.getItem("pdfk.rail") === "1"; } catch(e){}
+
+function openDrawer(v){
+  var m = $("main");
+  m.classList.toggle("rail-open", v);
+  $("scrim").hidden = !v;
+  $("btnPages").setAttribute("aria-expanded", v ? "true" : "false");
+}
+$("railToggle").addEventListener("click", function(){
+  if (window.matchMedia("(max-width:760px)").matches) openDrawer(false);
+  else setRailClosed(true);
+});
+$("railOpen").addEventListener("click", function(){ setRailClosed(false); });
+$("btnPages").addEventListener("click", function(){
+  openDrawer(!$("main").classList.contains("rail-open"));
+});
+$("scrim").addEventListener("click", function(){ openDrawer(false); });
+window.addEventListener("resize", syncRail);
+syncRail();
+
+/* ------------------------------------------------ 狭い画面の「その他」 */
+$("btnMore").addEventListener("click", function(e){
+  var r = e.currentTarget.getBoundingClientRect();
+  showMenu(r.right - 220, r.bottom + 6, [
+    {label:"開く", icon:ICON.open, run:function(){ $("btnOpen").click(); }},
+    {label:"PDFを追加", icon:ICON.add, run:function(){ $("btnAdd").click(); }},
+    "-",
+    {label:"元に戻す", icon:ICON.undo, disabled:!S.history.length, key:"Ctrl+Z", run:undo},
+    {label:"やり直す", icon:ICON.redo, disabled:!S.future.length, run:redo},
+    "-",
+    {label:"幅に合わせる", icon:ICON.fit, disabled:!S.pages.length, run:fitWidth},
+    {label:"画像・印鑑を置く", icon:ICON.img, disabled:!S.pages.length, run:function(){ $("imgIn").click(); }},
+    "-",
+    {label:"使い方とショートカット", icon:ICON.help, run:showHelp}
+  ]);
+});
+$("btnFindNarrow").addEventListener("click", function(){
+  var f = $("findBox");
+  var on = f.classList.toggle("open-narrow");
+  f.style.display = on ? "flex" : "";
+  if (on){ $("findIn").focus(); }
+});
+
+/* ------------------------------------------------ 文書名とページ位置 */
+function syncDocMeta(){
+  if (!S.pages.length){
+    $("docName").textContent = "PDFを開いてください";
+    $("docSub").textContent = "";
+    return;
+  }
+  $("docName").textContent = sourceName();
+  $("docSub").textContent = (currentPageIndex() + 1) + " / " + S.pages.length + "ページ" +
+    (S.unsaved ? "" : " ・ 保存済み");
+}
+
 $("btnHelp").addEventListener("click", showHelp);
 $("btnSample").addEventListener("click", openSample);
 
@@ -2294,8 +2794,19 @@ $("opDown").addEventListener("click", function(){ moveSel(1); });
 $("opDup").addEventListener("click", dupSel);
 $("opDel").addEventListener("click", deleteSel);
 $("opBlank").addEventListener("click", addBlank);
+$("rWidth").addEventListener("pointerdown", function(){
+  if (S.active && annotWidth(S.active.a)) pushHistory();
+});
 $("rWidth").addEventListener("input", function(e){
-  S.width = +e.target.value; $("wLabel").textContent = e.target.value;
+  var v = +e.target.value;
+  $("wLabel").textContent = e.target.value;
+  if (S.active && annotWidth(S.active.a)){
+    var a = S.active.a;
+    a.w = (a.t === "marker") ? v * 4 : v;
+    paintSheet(S.active.p); markThumb(S.active.p); syncFloatbar();
+  } else {
+    S.width = v;
+  }
 });
 $("selSize").addEventListener("change", function(e){
   S.size = parseFloat(e.target.value);
@@ -2328,7 +2839,7 @@ document.addEventListener("keydown", function(e){
     if (S.active){
       e.preventDefault(); pushHistory();
       var p = S.active.p; p.annots.splice(p.annots.indexOf(S.active.a),1);
-      S.active = null; paintSheet(p); markThumb(p);
+      S.active = null; killFloatbar(); paintSheet(p); markThumb(p);
     }
     return;
   }
@@ -2353,7 +2864,7 @@ async function init(){
     sheets.innerHTML = '<div style="color:#fff;padding:40px;text-align:center">ライブラリを読み込めませんでした。ページを再読み込みしてください。</div>';
     return;
   }
-  buildTools(); buildSwatches(); refreshToolClass(); syncTip(); syncUndo();
+  buildTools(); buildSwatches(); refreshToolClass(); syncUndo();
   $("wLabel").textContent = S.width;
   try { await document.fonts.ready; } catch(e){}
 
