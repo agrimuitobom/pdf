@@ -243,22 +243,22 @@ select,input[type=number]{
 @keyframes sp{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.spin{animation-duration:2.4s}}
 
-#pwask{
+.modal{
   position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;
   background:rgba(12,16,22,.55);backdrop-filter:blur(2px);
 }
-#pwask .card{
+.modal .card{
   background:var(--surface);color:var(--ink);padding:20px 22px;border-radius:10px;
   box-shadow:var(--shadow-md);width:min(360px,calc(100vw - 32px));
 }
-#pwask .ttl{font-size:14px;font-weight:700;margin-bottom:6px}
-#pwask .msg{font-size:12px;color:var(--ink-2);margin-bottom:12px;line-height:1.6}
-#pwask .msg.err{color:var(--danger)}
-#pwask input{
+.modal .ttl{font-size:14px;font-weight:700;margin-bottom:6px}
+.modal .msg{font-size:12px;color:var(--ink-2);margin-bottom:12px;line-height:1.6}
+.modal .msg.err{color:var(--danger)}
+.modal input{
   width:100%;box-sizing:border-box;font:inherit;font-size:14px;padding:8px 10px;
   border:1px solid var(--line);border-radius:var(--r);background:var(--surface-2);color:var(--ink);
 }
-#pwask .row{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.modal .row{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
 
 .sheetguide{
   color:#c9d1db;font-size:11.5px;text-align:center;padding:0 16px 6px;
@@ -374,7 +374,9 @@ var S = {
   history: [], future: [],
   images: new Map(),
   uid: 0, docSeq: 0,
-  editing: null
+  editing: null,
+  unsaved: false,   // 自動保存が追いついていないか
+  noSave: false     // サンプル読み込み中は保存しない
 };
 
 var $ = function(id){ return document.getElementById(id); };
@@ -426,6 +428,7 @@ function snapshot(){
   }));
 }
 function pushHistory(){
+  scheduleSave();
   S.history.push(snapshot());
   if (S.history.length > 40) S.history.shift();
   S.future.length = 0;
@@ -446,11 +449,13 @@ function restore(json){
 }
 function undo(){
   if (!S.history.length) return;
+  scheduleSave();
   S.future.push(snapshot());
   restore(S.history.pop()); syncUndo();
 }
 function redo(){
   if (!S.future.length) return;
+  scheduleSave();
   S.history.push(snapshot());
   restore(S.future.pop()); syncUndo();
 }
@@ -459,10 +464,50 @@ function syncUndo(){
   $("btnRedo").disabled = !S.future.length;
 }
 
+/* ---------------------------------------------------------- ダイアログ */
+function modal(inner, setup){
+  return new Promise(function(resolve){
+    var back = document.createElement("div");
+    back.className = "modal"; back.id = "pwask";
+    back.innerHTML = inner;
+    var done = false;
+    function finish(v){ if (done) return; done = true; back.remove(); resolve(v); }
+    document.body.appendChild(back);
+    setup(back, finish);
+  });
+}
+function askRestore(when){
+  var d = new Date(when);
+  var ts = (d.getMonth()+1) + "月" + d.getDate() + "日 " +
+           String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0");
+  return modal(
+    '<div class="card" role="dialog" aria-modal="true" aria-labelledby="rsttl">' +
+      '<div class="ttl" id="rsttl">前回の続きがあります</div>' +
+      '<div class="msg">' + ts + ' に編集していた内容がこの端末に残っています。開きますか。</div>' +
+      '<div class="row">' +
+        '<button class="btn ghost" data-a="no">新しく始める</button>' +
+        '<button class="btn primary" data-a="yes">続きを開く</button>' +
+      '</div>' +
+    '</div>',
+    function(back, finish){
+      back.addEventListener("click", function(e){
+        var a = e.target.closest("[data-a]");
+        if (a) finish(a.dataset.a === "yes");
+      });
+      back.addEventListener("keydown", function(e){
+        e.stopPropagation();
+        if (e.key === "Escape"){ e.preventDefault(); finish(false); }
+      });
+      back.querySelector('[data-a="yes"]').focus();
+    }
+  );
+}
+
 /* ------------------------------------------------------ パスワード入力 */
 function askPassword(fileName, retry){
   return new Promise(function(resolve){
-    var back = document.createElement("div"); back.id = "pwask";
+    var back = document.createElement("div");
+    back.className = "modal"; back.id = "pwask";
     back.innerHTML =
       '<div class="card" role="dialog" aria-modal="true" aria-labelledby="pwttl">' +
         '<div class="ttl" id="pwttl">パスワードが必要です</div>' +
@@ -501,6 +546,99 @@ function askPassword(fileName, retry){
   });
 }
 
+/* ------------------------------------------------ 自動保存（この端末の中） */
+/* 編集内容は IndexedDB に置くだけで、どこにも送信しない。 */
+var DB_NAME = "pdf-koubou", STORE = "session";
+var dbp = null;
+function db(){
+  if (!dbp){
+    dbp = new Promise(function(resolve, reject){
+      var rq = indexedDB.open(DB_NAME, 1);
+      rq.onupgradeneeded = function(){ rq.result.createObjectStore(STORE); };
+      rq.onsuccess = function(){ resolve(rq.result); };
+      rq.onerror   = function(){ reject(rq.error); };
+    }).catch(function(){ return null; });
+  }
+  return dbp;
+}
+async function idbPut(key, val){
+  var d = await db(); if (!d) return false;
+  return new Promise(function(resolve){
+    try{
+      var tx = d.transaction(STORE, "readwrite");
+      tx.objectStore(STORE).put(val, key);
+      tx.oncomplete = function(){ resolve(true); };
+      tx.onerror = tx.onabort = function(){ resolve(false); };
+    }catch(e){ resolve(false); }
+  });
+}
+async function idbGet(key){
+  var d = await db(); if (!d) return null;
+  return new Promise(function(resolve){
+    try{
+      var rq = d.transaction(STORE, "readonly").objectStore(STORE).get(key);
+      rq.onsuccess = function(){ resolve(rq.result || null); };
+      rq.onerror   = function(){ resolve(null); };
+    }catch(e){ resolve(null); }
+  });
+}
+async function idbClear(){
+  var d = await db(); if (!d) return;
+  try{
+    var tx = d.transaction(STORE, "readwrite");
+    tx.objectStore(STORE).clear();
+  }catch(e){}
+}
+
+var saveTimer = null, docsDirty = false;
+function scheduleSave(docsChanged){
+  if (S.noSave) return;
+  if (docsChanged) docsDirty = true;
+  S.unsaved = true;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(doSave, 1500);
+}
+async function doSave(){
+  if (!S.pages.length){ await idbClear(); S.unsaved = false; docsDirty = true; return; }
+  var ok = true;
+  if (docsDirty){
+    var used = new Set(S.pages.map(function(p){ return p.docId; }));
+    var docs = [];
+    S.docs.forEach(function(v, k){
+      if (used.has(k)) docs.push({id:k, name:v.name, bytes:v.bytes});
+    });
+    ok = await idbPut("docs", docs);
+    if (ok) docsDirty = false;
+  }
+  if (ok){
+    var imgs = [];
+    S.images.forEach(function(v, k){ imgs.push({id:k, url:v.url}); });
+    ok = await idbPut("state", {
+      pages: snapshot(), images: imgs, uid: S.uid, docSeq: S.docSeq, at: Date.now()
+    });
+  }
+  S.unsaved = !ok;   // 保存できなければ、閉じるときに警告する
+}
+
+async function restoreSession(st){
+  var docs = await idbGet("docs") || [];
+  for (var i=0;i<docs.length;i++){
+    var pdf = await openPdfData(docs[i].bytes, docs[i].name);
+    S.docs.set(docs[i].id, {name:docs[i].name, bytes:docs[i].bytes, pdf:pdf});
+  }
+  (st.images || []).forEach(function(r){
+    var im = new Image();
+    im.onload = function(){ repaintAll(); };
+    im.src = r.url;
+    S.images.set(r.id, {url:r.url, el:im});
+  });
+  S.uid = st.uid || 0;
+  S.docSeq = st.docSeq || 0;
+  restore(st.pages);          // ページ一覧とサムネイルを組み直す
+  S.unsaved = false;
+  requestAnimationFrame(fitWidth);
+}
+
 /* -------------------------------------------------------------- importing */
 var pageCache = new Map();
 function getPdfPage(p){
@@ -512,8 +650,9 @@ function getPdfPage(p){
   return pr;
 }
 
-async function openBytes(bytes, name, replace){
-  var id = "d" + (++S.docSeq);
+/* パスワードが要るPDFなら入力を求めながら開く。取り消されたら
+   err.cancelled を立てて投げる。 */
+async function openPdfData(bytes, name){
   var task = pdfjsLib.getDocument({data: bytes.slice(0), isEvalSupported:false});
   var INCORRECT = (pdfjsLib.PasswordResponses && pdfjsLib.PasswordResponses.INCORRECT_PASSWORD) || 2;
   var cancelled = false;
@@ -525,13 +664,17 @@ async function openBytes(bytes, name, replace){
       cb(pw);
     });
   };
-  var pdf;
   try {
-    pdf = await task.promise;
+    return await task.promise;
   } catch(e){
     if (cancelled){ var ce = new Error("cancelled"); ce.cancelled = true; throw ce; }
     throw e;
   }
+}
+
+async function openBytes(bytes, name, replace){
+  var id = "d" + (++S.docSeq);
+  var pdf = await openPdfData(bytes, name);
   S.docs.set(id, {name: name, bytes: bytes, pdf: pdf});
   var added = [];
   for (var i = 0; i < pdf.numPages; i++){
@@ -545,6 +688,7 @@ async function openBytes(bytes, name, replace){
   }
   if (replace){ S.pages = added; S.sel = new Set(); S.history.length=0; S.future.length=0; syncUndo(); }
   else { pushHistory(); S.pages = S.pages.concat(added); }
+  scheduleSave(true);
   buildSheets(); buildThumbs();
   if (replace) requestAnimationFrame(fitWidth);
   return added;
@@ -1626,14 +1770,41 @@ async function init(){
   buildTools(); buildSwatches(); refreshToolClass(); syncTip(); syncUndo();
   $("wLabel").textContent = S.width;
   try { await document.fonts.ready; } catch(e){}
+
+  var st = null;
+  try { st = await idbGet("state"); } catch(e){ st = null; }
+  if (st && st.pages){
+    if (await askRestore(st.at || Date.now())){
+      try {
+        busy("前回の続きを開いています…");
+        await restoreSession(st);
+        return;
+      } catch(err){
+        if (!(err && err.cancelled)) console.error(err);
+        S.docs.clear(); S.pages = []; S.sel = new Set(); pageCache.clear();
+        toast("前回の内容を開けませんでした");
+      } finally { busy(null); }
+    } else {
+      await idbClear();
+    }
+  }
+
+  S.noSave = true;
   try {
     busy("サンプルを準備しています…");
     await loadSample();
   } catch(err){
     console.error(err);
     $("emptyStage").hidden = false;
-  } finally { busy(null); }
+  } finally { busy(null); S.noSave = false; }
 }
+
+/* 自動保存が間に合っていないときだけ、閉じる前に確認する */
+window.addEventListener("beforeunload", function(e){
+  if (!S.unsaved || !S.pages.length) return;
+  e.preventDefault();
+  e.returnValue = "";
+});
 init();
 })();
 </script>
