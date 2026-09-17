@@ -184,6 +184,18 @@ select,input[type=number]{
 .thumb.dropbefore::before{top:-5px}
 .thumb.dropafter::after{bottom:-5px}
 .thumb.grabbed{opacity:.45}
+#findBox input{
+  font:inherit;font-size:12.5px;width:120px;padding:3px 6px;
+  border:1px solid var(--line);border-radius:var(--r);background:var(--surface);color:var(--ink);
+}
+#findBox input:focus{outline:2px solid var(--accent);outline-offset:-1px}
+#pjump{display:flex;align-items:center;gap:3px;font-size:11px;color:var(--ink-3)}
+#pjump input{
+  font:inherit;font-size:11px;width:34px;text-align:center;padding:2px 3px;
+  border:1px solid var(--line);border-radius:5px;background:var(--surface);color:var(--ink);
+  font-variant-numeric:tabular-nums;
+}
+@media (max-width:900px){ #findBox input{width:84px} #findBox .hint{display:none} }
 .thumbs.reordering{touch-action:none}
 .thumb .mark{
   position:absolute;top:4px;right:4px;width:7px;height:7px;border-radius:50%;
@@ -303,6 +315,14 @@ select,input[type=number]{
       <button class="btn icon" id="zIn" aria-label="拡大">＋</button>
       <button class="btn ghost" id="zFit">幅に合わせる</button>
     </div>
+    <span class="sep" style="height:24px"></span>
+    <div class="field" id="findBox">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" width="15" height="15" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="M15.5 15.5L20 20"/></svg>
+      <input type="search" id="findIn" placeholder="文字を探す" aria-label="文字を探す">
+      <span class="hint" id="findCount" style="min-width:52px;text-align:center;font-variant-numeric:tabular-nums"></span>
+      <button class="btn icon" id="findPrev" aria-label="前の一致" title="前の一致 (Shift+Enter)">‹</button>
+      <button class="btn icon" id="findNext" aria-label="次の一致" title="次の一致 (Enter)">›</button>
+    </div>
     <div class="spacer"></div>
     <button class="btn primary" id="btnExport"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg>PDFを書き出す</button>
   </div>
@@ -327,7 +347,7 @@ select,input[type=number]{
     <aside class="rail">
       <div class="rail-head">
         <span class="ttl">ページ</span>
-        <span class="hint" id="pcount">0</span>
+        <span class="hint" id="pjump"><input type="text" id="pgoIn" inputmode="numeric" aria-label="表示するページ番号" value="1"><span id="pcount">0</span></span>
       </div>
       <div class="pageops">
         <button class="btn icon" id="opRotL" title="左に90°回転" aria-label="左に回転"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9a8 8 0 1 1 2.5 7M3 4v5h5"/></svg></button>
@@ -384,6 +404,7 @@ var S = {
   images: new Map(),
   uid: 0, docSeq: 0,
   editing: null,
+  find: {q:"", hits:[], idx:-1},
   unsaved: false,   // 自動保存が追いついていないか
   noSave: false     // サンプル読み込み中は保存しない
 };
@@ -755,7 +776,8 @@ function buildSheets(){
   if (S.editing) commitText();
   sheets.textContent = "";
   $("emptyStage").hidden = S.pages.length > 0;
-  $("pcount").textContent = S.pages.length ? S.pages.length + "ページ" : "0";
+  $("pcount").textContent = S.pages.length ? "/ " + S.pages.length : "/ 0";
+  syncPageNo();
   $("btnExport").disabled = !S.pages.length;
   S.pages.forEach(function(p, i){
     var d = dispSize(p, S.zoom);
@@ -961,6 +983,7 @@ function paintSheet(p){
   ctx.save();
   ctx.setTransform(m[0],m[1],m[2],m[3],m[4],m[5]);
   p.annots.forEach(function(a){ drawAnnot(ctx, a); });
+  drawFindHits(ctx, p);
   ctx.restore();
 
   if (S.active && S.active.p === p){
@@ -1055,6 +1078,98 @@ function touchGone(e){
 }
 stage.addEventListener("pointerup", touchGone, true);
 stage.addEventListener("pointercancel", touchGone, true);
+
+/* ------------------------------------------------------------ 文字を探す */
+var textCache = new Map();
+function pageText(p){
+  if (p.blank) return Promise.resolve([]);
+  var key = p.docId + ":" + p.srcIndex;
+  if (textCache.has(key)) return textCache.get(key);
+  var pr = getPdfPage(p).then(function(pg){
+    return pg.getTextContent();
+  }).then(function(tc){
+    return tc.items.filter(function(it){ return it.str && it.str.trim(); }).map(function(it){
+      var t = it.transform;
+      var h = it.height || Math.abs(t[3]) || 10;
+      return {str: it.str, x: t[4], y: t[5], w: it.width || 0, h: h};
+    });
+  }).catch(function(){ return []; });
+  textCache.set(key, pr);
+  return pr;
+}
+function syncFind(){
+  var f = S.find;
+  $("findCount").textContent = !f.q ? ""
+    : (f.hits.length ? (f.idx + 1) + " / " + f.hits.length : "見つかりません");
+  $("findPrev").disabled = $("findNext").disabled = f.hits.length < 2;
+}
+async function runFind(q){
+  var f = S.find;
+  f.q = q; f.hits = []; f.idx = -1;
+  if (q){
+    var needle = q.toLowerCase();
+    for (var i=0;i<S.pages.length;i++){
+      var p = S.pages[i];
+      var items = await pageText(p);
+      for (var j=0;j<items.length;j++){
+        if (items[j].str.toLowerCase().indexOf(needle) >= 0)
+          f.hits.push({uid:p.uid, x:items[j].x, y:items[j].y, w:items[j].w, h:items[j].h});
+      }
+    }
+  }
+  syncFind();
+  repaintAll();
+  if (f.hits.length) gotoHit(0);
+}
+function gotoHit(k){
+  var f = S.find;
+  if (!f.hits.length) return;
+  f.idx = ((k % f.hits.length) + f.hits.length) % f.hits.length;
+  var h = f.hits[f.idx], p = byUid(h.uid);
+  if (p && p.el){
+    // ページの上端ではなく、一致した箇所そのものが見えるところまで動かす
+    var at = toScreen(p, h.x, h.y);
+    stage.scrollTo({
+      left: p.el.offsetLeft + at[0] - stage.clientWidth / 2,
+      top:  p.el.offsetTop  + at[1] - stage.clientHeight / 2,
+      behavior: "smooth"
+    });
+  }
+  syncFind();
+  repaintAll();
+}
+function drawFindHits(ctx, p){
+  var f = S.find;
+  if (!f.q || !f.hits.length) return;
+  for (var i=0;i<f.hits.length;i++){
+    var h = f.hits[i];
+    if (h.uid !== p.uid) continue;
+    ctx.fillStyle = (i === f.idx) ? "rgba(255,150,0,.45)" : "rgba(255,225,0,.35)";
+    ctx.fillRect(h.x, h.y - h.h * 0.22, h.w, h.h * 1.2);
+  }
+}
+
+/* ------------------------------------------------------- ページ番号で移動 */
+function currentPageIndex(){
+  var best = 0, bestD = Infinity, mid = stage.clientHeight / 2;
+  for (var i=0;i<S.pages.length;i++){
+    var el = S.pages[i].el;
+    if (!el) continue;
+    var r = el.getBoundingClientRect(), sr = stage.getBoundingClientRect();
+    var d = Math.abs((r.top + r.height/2) - (sr.top + mid));
+    if (d < bestD){ bestD = d; best = i; }
+  }
+  return best;
+}
+function syncPageNo(){
+  var el = $("pgoIn");
+  if (document.activeElement !== el) el.value = S.pages.length ? (currentPageIndex() + 1) : "";
+}
+function gotoPage(n){
+  var i = clamp(Math.round(n) - 1, 0, S.pages.length - 1);
+  var p = S.pages[i];
+  if (p && p.el) p.el.scrollIntoView({behavior:"smooth", block:"start"});
+}
 
 /* ------------------------------------------------------------ interaction */
 function bindSheet(p, canvas){
@@ -1957,6 +2072,39 @@ $("imgIn").addEventListener("change", function(e){
   if (e.target.files[0]) addImage(e.target.files[0]);
   e.target.value = "";
 });
+var findTimer = null;
+$("findIn").addEventListener("input", function(e){
+  clearTimeout(findTimer);
+  var q = e.target.value;
+  findTimer = setTimeout(function(){ runFind(q); }, 250);
+});
+$("findIn").addEventListener("keydown", function(e){
+  e.stopPropagation();
+  if (e.key === "Enter"){
+    e.preventDefault();
+    clearTimeout(findTimer);
+    if (S.find.q !== e.target.value) runFind(e.target.value);
+    else gotoHit(S.find.idx + (e.shiftKey ? -1 : 1));
+  }
+  if (e.key === "Escape"){
+    e.target.value = ""; runFind(""); e.target.blur();
+  }
+});
+$("findPrev").addEventListener("click", function(){ gotoHit(S.find.idx - 1); });
+$("findNext").addEventListener("click", function(){ gotoHit(S.find.idx + 1); });
+
+$("pgoIn").addEventListener("keydown", function(e){
+  e.stopPropagation();
+  if (e.key === "Enter"){ e.preventDefault(); gotoPage(parseInt(e.target.value, 10) || 1); e.target.blur(); }
+  if (e.key === "Escape"){ syncPageNo(); e.target.blur(); }
+});
+$("pgoIn").addEventListener("blur", syncPageNo);
+var pnTimer = null;
+stage.addEventListener("scroll", function(){
+  clearTimeout(pnTimer);
+  pnTimer = setTimeout(syncPageNo, 120);
+});
+
 $("btnExport").addEventListener("click", askExport);
 $("btnUndo").addEventListener("click", undo);
 $("btnRedo").addEventListener("click", redo);
@@ -1990,6 +2138,11 @@ stage.addEventListener("drop", function(e){
 
 document.addEventListener("keydown", function(e){
   if (S.editing) return;
+  var t = e.target;
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
+  if (!(e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f"){
+    e.preventDefault(); $("findIn").focus(); $("findIn").select(); return;
+  }
   var mod = e.ctrlKey || e.metaKey;
   if (mod && e.key.toLowerCase() === "z"){ e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
   if (mod && e.key.toLowerCase() === "y"){ e.preventDefault(); redo(); return; }
