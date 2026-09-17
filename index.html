@@ -168,19 +168,23 @@ select,input[type=number]{
 .pageops .btn:hover{background:var(--surface-2)}
 .thumbs{flex:1 1 auto;overflow-y:auto;padding:10px 8px 24px;display:flex;flex-direction:column;gap:9px}
 
-.thumb{position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer}
+.thumb{position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;user-select:none}
 .thumb .shot{
   background:var(--surface);border:1px solid var(--line);border-radius:3px;
   box-shadow:var(--shadow-sm);overflow:hidden;display:block;
 }
-.thumb .shot img{display:block;width:100%;height:auto}
+.thumb .shot img{display:block;width:100%;height:auto;-webkit-user-drag:none;user-select:none}
 .thumb .shot.empty{width:110px;height:150px;background:repeating-linear-gradient(45deg,var(--surface),var(--surface) 6px,var(--surface-2) 6px,var(--surface-2) 12px)}
 .thumb .no{font-size:11px;color:var(--ink-3);font-variant-numeric:tabular-nums}
 .thumb[aria-selected="true"] .shot{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
 .thumb[aria-selected="true"] .no{color:var(--accent);font-weight:700}
-.thumb.dragover::before{
-  content:"";position:absolute;left:4px;right:4px;top:-5px;height:2px;background:var(--accent);border-radius:2px;
+.thumb.dropbefore::before,.thumb.dropafter::after{
+  content:"";position:absolute;left:4px;right:4px;height:2px;background:var(--accent);border-radius:2px;
 }
+.thumb.dropbefore::before{top:-5px}
+.thumb.dropafter::after{bottom:-5px}
+.thumb.grabbed{opacity:.45}
+.thumbs.reordering{touch-action:none}
 .thumb .mark{
   position:absolute;top:4px;right:4px;width:7px;height:7px;border-radius:50%;
   background:var(--danger);box-shadow:0 0 0 2px var(--surface);
@@ -1162,7 +1166,7 @@ function buildThumbs(){
   thumbsEl.textContent = "";
   S.pages.forEach(function(p, i){
     var el = document.createElement("div");
-    el.className = "thumb"; el.draggable = true; el.dataset.uid = p.uid;
+    el.className = "thumb"; el.dataset.uid = p.uid;
     el.setAttribute("role","option");
     el.setAttribute("aria-selected", S.sel.has(p.uid) ? "true" : "false");
     var shot = document.createElement("div"); shot.className = "shot empty";
@@ -1171,28 +1175,87 @@ function buildThumbs(){
     if (p.annots.length){ var m = document.createElement("i"); m.className="mark"; el.appendChild(m); }
     thumbsEl.appendChild(el);
     thumbFor(p).then(function(url){
-      var img = new Image(); img.src = url; img.alt = "";
+      var img = new Image(); img.src = url; img.alt = ""; img.draggable = false;
       shot.className = "shot"; shot.textContent = ""; shot.appendChild(img);
     }).catch(function(){});
 
     el.addEventListener("click", function(ev){
+      if (railDragJustEnded) return;         // 並べ替えの直後は選択しない
       selectPage(p.uid, ev.shiftKey, ev.ctrlKey || ev.metaKey);
       if (p.el) p.el.scrollIntoView({behavior:"smooth", block:"start"});
-    });
-    el.addEventListener("dragstart", function(ev){
-      ev.dataTransfer.setData("text/plain", String(p.uid));
-      ev.dataTransfer.effectAllowed = "move";
-    });
-    el.addEventListener("dragover", function(ev){ ev.preventDefault(); el.classList.add("dragover"); });
-    el.addEventListener("dragleave", function(){ el.classList.remove("dragover"); });
-    el.addEventListener("drop", function(ev){
-      ev.preventDefault(); el.classList.remove("dragover");
-      var from = +ev.dataTransfer.getData("text/plain");
-      movePageTo(from, i);
     });
   });
   updateSelUI();
 }
+/* ページの並べ替え。タッチでも動くようポインタ操作で実装する。
+   マウス・ペンは動かした時点で、指は長押ししてから掴む（指はスクロールにも使うため）。 */
+var railDragJustEnded = false;
+var rail = null;   // {uid, el, x, y, id, active, at, timer}
+
+function railThumbs(){ return Array.prototype.slice.call(thumbsEl.children); }
+function railClearMarks(){
+  railThumbs().forEach(function(x){ x.classList.remove("dropbefore","dropafter"); });
+}
+function railTargetIndex(y){
+  var els = railThumbs();
+  for (var i=0;i<els.length;i++){
+    var r = els[i].getBoundingClientRect();
+    if (y < r.top + r.height/2) return i;
+  }
+  return els.length;
+}
+function railBegin(){
+  if (!rail || rail.active) return;
+  rail.active = true;
+  rail.el.classList.add("grabbed");
+  thumbsEl.classList.add("reordering");
+}
+function railEnd(){
+  if (!rail) return;
+  clearTimeout(rail.timer);
+  var r = rail; rail = null;
+  thumbsEl.classList.remove("reordering");
+  r.el.classList.remove("grabbed");
+  railClearMarks();
+  if (!r.active) return;
+  railDragJustEnded = true;
+  setTimeout(function(){ railDragJustEnded = false; }, 0);
+  if (r.at == null) return;
+  var from = S.pages.findIndex(function(p){ return p.uid === r.uid; });
+  var to = r.at > from ? r.at - 1 : r.at;      // 自分を抜いた後の位置に直す
+  if (from >= 0 && to !== from) movePageTo(r.uid, to);
+}
+
+thumbsEl.addEventListener("pointerdown", function(e){
+  var el = e.target.closest(".thumb");
+  if (!el || (e.button != null && e.button !== 0)) return;
+  rail = {uid:+el.dataset.uid, el:el, x:e.clientX, y:e.clientY, id:e.pointerId,
+          active:false, at:null, timer:null};
+  if (e.pointerType === "touch") rail.timer = setTimeout(railBegin, 350);
+});
+thumbsEl.addEventListener("pointermove", function(e){
+  if (!rail || e.pointerId !== rail.id) return;
+  var far = Math.abs(e.clientX - rail.x) + Math.abs(e.clientY - rail.y);
+  if (!rail.active){
+    if (e.pointerType === "touch"){
+      if (far > 12){ clearTimeout(rail.timer); rail = null; }   // スクロールに譲る
+      return;
+    }
+    if (far > 6) railBegin(); else return;
+  }
+  railClearMarks();
+  rail.at = railTargetIndex(e.clientY);
+  var els = railThumbs();
+  if (rail.at < els.length) els[rail.at].classList.add("dropbefore");
+  else if (els.length) els[els.length-1].classList.add("dropafter");
+});
+thumbsEl.addEventListener("pointerup", railEnd);
+thumbsEl.addEventListener("pointercancel", railEnd);
+/* 並べ替え中だけ、指でのスクロールを止める */
+thumbsEl.addEventListener("touchmove", function(e){
+  if (rail && rail.active) e.preventDefault();
+}, {passive:false});
+
 function markThumb(p){
   var key = thumbKey(p);
   var el = thumbsEl.querySelector('.thumb[data-uid="'+p.uid+'"]');
