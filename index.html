@@ -1061,6 +1061,16 @@ function pageMenu(p, x, y){
   ], head);
 }
 
+/* 共用のパソコン向け。この端末に残っている編集内容を消す。 */
+async function wipeSaved(msgEl){
+  clearTimeout(saveTimer);
+  S.noSave = true;
+  await idbClear();
+  S.unsaved = false;
+  if (msgEl) msgEl.textContent = "消しました";
+  setTimeout(function(){ S.noSave = false; }, 500);
+}
+
 /* -------------------------------------------- 使い方・ショートカット・権利表記 */
 function showHelp(){
   var rows = [
@@ -1097,6 +1107,14 @@ function showHelp(){
       '<div class="msg">白塗りは見た目を隠すだけでなく、元の文字データごと消します。' +
       'そのため白塗りを使ったページは、書き出すときに画像になります。' +
       '四角ツールで白く塗っただけでは、下の文字は残ります。</div>' +
+      '<h4>この端末に残っている内容</h4>' +
+      '<div class="msg">編集中の内容は、次に開いたとき続きから再開できるよう、' +
+      'この端末のブラウザ内に自動保存されます（サーバーには送られません）。' +
+      '共用のパソコンで個人情報を含む書類を扱ったあとは、ここで消してください。</div>' +
+      '<div class="row" style="margin:6px 0 2px;justify-content:flex-start">' +
+        '<button class="btn" data-a="wipe">保存された内容を消す</button>' +
+        '<span class="hint" id="wipeMsg" style="align-self:center"></span>' +
+      '</div>' +
       '<h4>このアプリについて</h4>' +
       '<div class="msg">PDF工房 — MIT License<br>' +
         '<a href="https://mozilla.github.io/pdf.js/" target="_blank" rel="noopener">PDF.js</a>' +
@@ -1107,13 +1125,18 @@ function showHelp(){
     '</div>',
     function(back, finish){
       back.addEventListener("click", function(e){
-        if (e.target.closest("[data-a]") || e.target === back) finish(true);
+        var a = e.target.closest("[data-a]");
+        if (a && a.dataset.a === "wipe"){
+          wipeSaved(back.querySelector("#wipeMsg"));
+          return;
+        }
+        if (a || e.target === back) finish(true);
       });
       back.addEventListener("keydown", function(e){
         e.stopPropagation();
-        if (e.key === "Escape" || e.key === "Enter"){ e.preventDefault(); finish(true); }
+        if (e.key === "Escape"){ e.preventDefault(); finish(true); }
       });
-      back.querySelector("[data-a]").focus();
+      back.querySelector('[data-a="ok"]').focus();
     }
   );
 }
@@ -2426,29 +2449,53 @@ async function buildPdf(list, onProgress){
   var srcCache = new Map(), stamps = new Map();
   var mctx = document.createElement("canvas").getContext("2d");  // 文字幅の計測用
   var redacted = 0, locked = 0;
+
+  /* まず、各ページをどう出すかを決める。
+     ページのコピーは文書ごとに1回にまとめる。1ページずつ写すと、複数の
+     ページが共有している画像やフォントがページ数だけ複製され、スキャンした
+     PDFで出力が何十倍にも膨らむ。 */
+  var plan = [], need = new Map();
   for (var i=0;i<list.length;i++){
     var p = list[i];
-    if (onProgress) onProgress(i, list.length);
-    var target, src = null;
-    if (!p.blank) src = await loadSource(srcCache, p.docId);
+    var src = p.blank ? null : await loadSource(srcCache, p.docId);
     if (!p.blank && (hasRedaction(p) || !src)){
-      await flattenPage(out, p);
+      plan.push({p:p, how:"flat"});
       if (!src) locked++; else redacted++;
+    } else if (p.blank){
+      plan.push({p:p, how:"blank"});
+    } else {
+      if (!need.has(p.docId)) need.set(p.docId, []);
+      var q = need.get(p.docId);
+      plan.push({p:p, how:"copy", docId:p.docId, slot:q.length});
+      q.push(p.srcIndex);
+    }
+  }
+  var copies = new Map();
+  var docIds = Array.from(need.keys());
+  for (var d=0; d<docIds.length; d++){
+    var id = docIds[d];
+    copies.set(id, await out.copyPages(srcCache.get(id), need.get(id)));
+  }
+
+  for (var k=0;k<plan.length;k++){
+    var it = plan[k], pg = it.p, target;
+    if (onProgress) onProgress(k, plan.length);
+    if (it.how === "flat"){
+      await flattenPage(out, pg);
       await new Promise(function(r){ setTimeout(r, 0); });
       continue;
     }
-    if (p.blank){
-      target = out.addPage([p.pw, p.ph]);
-      if (p.rot) target.setRotation(degrees(((p.rot % 360) + 360) % 360));
+    if (it.how === "blank"){
+      target = out.addPage([pg.pw, pg.ph]);
+      if (pg.rot) target.setRotation(degrees(((pg.rot % 360) + 360) % 360));
     } else {
-      var copied = await out.copyPages(src, [p.srcIndex]);
-      target = copied[0];
+      target = copies.get(it.docId)[it.slot];
       out.addPage(target);
       var cur = 0;
       try { cur = target.getRotation().angle || 0; } catch(e){ cur = 0; }
-      target.setRotation(degrees((((cur + p.rot) % 360) + 360) % 360));
+      target.setRotation(degrees((((cur + pg.rot) % 360) + 360) % 360));
     }
-    if (p.annots && p.annots.length) await drawAnnots(out, target, p, mctx, stamps);
+    if (pg.annots && pg.annots.length) await drawAnnots(out, target, pg, mctx, stamps);
     await new Promise(function(r){ setTimeout(r, 0); });
   }
   out.setProducer("PDF工房");
@@ -3136,7 +3183,8 @@ thumbsEl.addEventListener("keydown", function(e){
   if (e.key === "Delete" || e.key === "Backspace"){ e.preventDefault(); deleteSel(); }
 });
 
-$("btnExport").addEventListener("click", askExport);
+/* クリックイベントが第1引数に入ると「選択ページのみ」が既定になってしまう */
+$("btnExport").addEventListener("click", function(){ askExport(false); });
 $("btnUndo").addEventListener("click", undo);
 $("btnRedo").addEventListener("click", redo);
 $("zIn").addEventListener("click", function(){ setZoom(S.zoom*1.2); });
