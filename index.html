@@ -337,6 +337,7 @@ select,input[type=number]{
 
 var PDFLib = window.PDFLib;
 var pdfjsLib = window.pdfjsLib;
+var LineCapStyle = PDFLib && PDFLib.LineCapStyle;
 if (pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 
 var FONT = '"Hiragino Kaku Gothic ProN","Yu Gothic Medium","Yu Gothic","Noto Sans JP",Meiryo,system-ui,sans-serif';
@@ -1109,7 +1110,8 @@ async function flattenPage(out, p){
 async function buildPdf(list, onProgress){
   var PDFDocument = PDFLib.PDFDocument, degrees = PDFLib.degrees;
   var out = await PDFDocument.create();
-  var srcCache = new Map();
+  var srcCache = new Map(), stamps = new Map();
+  var mctx = document.createElement("canvas").getContext("2d");  // 文字幅の計測用
   for (var i=0;i<list.length;i++){
     var p = list[i];
     if (onProgress) onProgress(i, list.length);
@@ -1135,32 +1137,98 @@ async function buildPdf(list, onProgress){
       try { cur = target.getRotation().angle || 0; } catch(e){ cur = 0; }
       target.setRotation(degrees((((cur + p.rot) % 360) + 360) % 360));
     }
-    if (p.annots && p.annots.length){
-      var png = await overlayPng(p);
-      if (png){
-        var img = await out.embedPng(png);
-        target.drawImage(img, {x: p.vx0, y: p.vy0, width: p.pw, height: p.ph});
-      }
-    }
+    if (p.annots && p.annots.length) await drawAnnots(out, target, p, mctx, stamps);
     await new Promise(function(r){ setTimeout(r, 0); });
   }
   out.setProducer("PDF工房");
   return await out.save({useObjectStreams:false});
 }
-function overlayPng(p){
-  return new Promise(function(resolve){
-    var s = 2;
-    var c = document.createElement("canvas");
-    c.width = Math.max(1, Math.round(p.pw * s));
-    c.height = Math.max(1, Math.round(p.ph * s));
-    var ctx = c.getContext("2d");
-    ctx.setTransform(s, 0, 0, -s, -p.vx0*s, p.vy1*s);
-    p.annots.forEach(function(a){ drawAnnot(ctx, a); });
-    c.toBlob(function(blob){
-      if (!blob) return resolve(null);
-      blob.arrayBuffer().then(function(buf){ resolve(new Uint8Array(buf)); });
-    }, "image/png");
-  });
+/* 注釈はできるかぎりベクターとして書き出す。ページ全体を画像化しないので、
+   元の文字は選択・検索できるまま、書き込みも拡大してぼやけない。 */
+var RASTER_DPI = 300;   // ベクター化できない注釈(テキスト)だけに使う
+
+function pdfColor(hex){
+  var h = String(hex || "#000000").replace("#","");
+  if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  var n = parseInt(h, 16);
+  return PDFLib.rgb(((n>>16)&255)/255, ((n>>8)&255)/255, (n&255)/255);
+}
+function strokePath(pts){
+  // 画面と同じ2次ベジエでなぞる。drawSvgPath は y 軸が逆向きなので符号を反転する
+  var d = "M " + pts[0][0] + " " + (-pts[0][1]);
+  for (var i=1;i<pts.length-1;i++){
+    var mx = (pts[i][0]+pts[i+1][0])/2, my = (pts[i][1]+pts[i+1][1])/2;
+    d += " Q " + pts[i][0] + " " + (-pts[i][1]) + " " + mx + " " + (-my);
+  }
+  var last = pts[pts.length-1];
+  return d + " L " + last[0] + " " + (-last[1]);
+}
+function dataUrlBytes(url){
+  var bin = atob(url.slice(url.indexOf(",") + 1));
+  var out = new Uint8Array(bin.length);
+  for (var i=0;i<bin.length;i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+async function embedStamp(out, rec){
+  if (/^data:image\/png/i.test(rec.url))   return await out.embedPng(dataUrlBytes(rec.url));
+  if (/^data:image\/jpe?g/i.test(rec.url)) return await out.embedJpg(dataUrlBytes(rec.url));
+  // webp など pdf-lib が直接埋め込めない形式は PNG に変換する
+  var c = document.createElement("canvas");
+  c.width = rec.el.naturalWidth; c.height = rec.el.naturalHeight;
+  c.getContext("2d").drawImage(rec.el, 0, 0);
+  var blob = await new Promise(function(r){ c.toBlob(r, "image/png"); });
+  return await out.embedPng(new Uint8Array(await blob.arrayBuffer()));
+}
+/* 日本語フォントを同梱していないため、テキストだけは画像にする。
+   ページ全体ではなく、その注釈の範囲だけを高解像度で焼く。 */
+async function rasterAnnot(out, target, a, mctx){
+  var b = bbox(mctx, a), pad = 2;
+  var x0 = b.x - pad, y0 = b.y - pad, w = b.w + pad*2, h = b.h + pad*2;
+  if (!(w > 0) || !(h > 0)) return;
+  var s = RASTER_DPI / 72;
+  var c = document.createElement("canvas");
+  c.width  = Math.max(1, Math.round(w * s));
+  c.height = Math.max(1, Math.round(h * s));
+  var g = c.getContext("2d");
+  g.setTransform(s, 0, 0, -s, -x0*s, (y0+h)*s);
+  drawAnnot(g, a);
+  var blob = await new Promise(function(r){ c.toBlob(r, "image/png"); });
+  var img = await out.embedPng(new Uint8Array(await blob.arrayBuffer()));
+  target.drawImage(img, {x:x0, y:y0, width:w, height:h});
+}
+
+async function drawAnnots(out, target, p, mctx, stamps){
+  for (var i=0;i<p.annots.length;i++){
+    var a = p.annots[i];
+    if (a.t === "pen" || a.t === "marker"){
+      var op = (a.t === "marker") ? 0.38 : 1;
+      if (a.p.length === 1){
+        target.drawCircle({x:a.p[0][0], y:a.p[0][1], size:a.w/2, color:pdfColor(a.c), opacity:op});
+      } else {
+        target.drawSvgPath(strokePath(a.p), {
+          x:0, y:0,
+          borderColor: pdfColor(a.c), borderWidth: a.w, borderOpacity: op,
+          borderLineCap: (a.t === "marker") ? LineCapStyle.Butt : LineCapStyle.Round
+        });
+      }
+    } else if (a.t === "rect"){
+      target.drawRectangle({x:a.x, y:a.y, width:a.w2, height:a.h2,
+        borderColor: pdfColor(a.c), borderWidth: a.w});
+    } else if (a.t === "white"){
+      target.drawRectangle({x:a.x, y:a.y, width:a.w2, height:a.h2, color: pdfColor(a.c || "#ffffff")});
+    } else if (a.t === "line"){
+      target.drawLine({start:{x:a.x, y:a.y}, end:{x:a.x + a.w2, y:a.y + a.h2},
+        thickness: a.w, color: pdfColor(a.c), lineCap: LineCapStyle.Round});
+    } else if (a.t === "image"){
+      var rec = S.images.get(a.img);
+      if (rec){
+        if (!stamps.has(a.img)) stamps.set(a.img, await embedStamp(out, rec));
+        target.drawImage(stamps.get(a.img), {x:a.x, y:a.y, width:a.w2, height:a.h2});
+      }
+    } else if (a.t === "text"){
+      await rasterAnnot(out, target, a, mctx);
+    }
+  }
 }
 async function exportPdf(onlySelected){
   var list = onlySelected ? selectedPages() : S.pages;
