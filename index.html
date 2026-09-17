@@ -293,7 +293,7 @@ select,input[type=number]{
         </select><span class="hint">pt</span>
       </div>
       <button class="btn" id="btnImage"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M4 16l4.5-4.5 3 3 4-5L20 15"/></svg>画像・印鑑</button>
-      <span class="hint" id="tipLine">元の文字を直す → <b>白塗り</b>で消して <b>テキスト</b>を重ねます</span>
+      <span class="hint" id="tipLine"></span>
     </div>
   </div>
 
@@ -529,6 +529,15 @@ function refreshToolClass(){
   $("fSize").style.display = (S.tool === "text") ? "" : "none";
   $("fWidth").style.display = (S.tool === "pen" || S.tool === "marker" || S.tool === "rect" || S.tool === "line") ? "" : "none";
   $("fColor").style.display = (S.tool === "erase" || S.tool === "select") ? "none" : "";
+}
+
+var TIPS = {
+  white: '<b>白塗り</b>は文字データごと消します。このページは画像として書き出されます',
+  text:  '元の文字を直す → <b>白塗り</b>で消して <b>テキスト</b>を重ねます'
+};
+function syncTip(){
+  $("tipLine").innerHTML = TIPS[S.tool] ||
+    '元の文字を直す → <b>白塗り</b>で消して <b>テキスト</b>を重ねます';
 }
 
 var io = new IntersectionObserver(function(entries){
@@ -1063,6 +1072,40 @@ function fitWidth(){
 }
 
 /* ---------------------------------------------------------------- export */
+/* 白塗り(墨消し)を含むページは、元のテキストを確実に消すためページごと画像化する。
+   元のページオブジェクトを一切コピーしないので、隠れたテキストは出力に残らない。 */
+var REDACT_DPI = 200;
+function hasRedaction(p){
+  return !!(p.annots && p.annots.some(function(a){ return a.t === "white"; }));
+}
+function needsFlatten(p){
+  return !p.blank && hasRedaction(p);
+}
+async function flattenPage(out, p){
+  var scale = REDACT_DPI / 72;
+  var d = dispSize(p, 1);                       // 回転を反映したページ寸法(pt)
+  var c = document.createElement("canvas");
+  c.width  = Math.max(1, Math.round(d.w * scale));
+  c.height = Math.max(1, Math.round(d.h * scale));
+  var ctx = c.getContext("2d");
+  ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, c.width, c.height);
+
+  var page = await getPdfPage(p);
+  var vp = page.getViewport({scale: scale, rotation: totalRot(p)});
+  await page.render({canvasContext: ctx, viewport: vp}).promise;
+
+  var m = vp.transform;                         // PDF座標 -> キャンバス画素
+  ctx.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
+  p.annots.forEach(function(a){ drawAnnot(ctx, a); });
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+  var blob = await new Promise(function(r){ c.toBlob(r, "image/jpeg", 0.92); });
+  var img = await out.embedJpg(new Uint8Array(await blob.arrayBuffer()));
+  var target = out.addPage([d.w, d.h]);         // 回転は画像に焼き込み済み
+  target.drawImage(img, {x: 0, y: 0, width: d.w, height: d.h});
+  return target;
+}
+
 async function buildPdf(list, onProgress){
   var PDFDocument = PDFLib.PDFDocument, degrees = PDFLib.degrees;
   var out = await PDFDocument.create();
@@ -1071,6 +1114,11 @@ async function buildPdf(list, onProgress){
     var p = list[i];
     if (onProgress) onProgress(i, list.length);
     var target;
+    if (needsFlatten(p)){
+      await flattenPage(out, p);
+      await new Promise(function(r){ setTimeout(r, 0); });
+      continue;
+    }
     if (p.blank){
       target = out.addPage([p.pw, p.ph]);
       if (p.rot) target.setRotation(degrees(((p.rot % 360) + 360) % 360));
@@ -1126,6 +1174,10 @@ async function exportPdf(onlySelected){
     var blob = new Blob([bytes], {type:"application/pdf"});
     busy(null);
     await saveFile(name, blob);
+    var n = list.filter(needsFlatten).length;
+    if (n) setTimeout(function(){
+      toast("白塗りした" + n + "ページは、文字データごと消すため画像にしました", 4200);
+    }, 2000);
   }catch(err){
     console.error(err); busy(null);
     toast("書き出しに失敗しました: " + (err && err.message ? err.message : err));
@@ -1159,7 +1211,8 @@ var TOOLS = [
   {k:"marker", n:"マーカー", key:"M", d:'<path d="M3 20h8M13.5 3.5l6 4-6.5 9.5-5-2z"/>'},
   {k:"rect",   n:"四角", key:"R", d:'<path d="M4 5h16v14H4z"/>'},
   {k:"line",   n:"直線", key:"L", d:'<path d="M5 19L19 5"/>'},
-  {k:"white",  n:"白塗り", key:"W", d:'<path d="M4 6h16v12H4z"/><path d="M6 16l4-4M10 16l4-4M14 16l4-4" opacity=".55"/>'},
+  {k:"white",  n:"白塗り", key:"W", hint:"文字データごと消します。このページは画像として書き出されます",
+   d:'<path d="M4 6h16v12H4z"/><path d="M6 16l4-4M10 16l4-4M14 16l4-4" opacity=".55"/>'},
   {k:"erase",  n:"消す", key:"E", d:'<path d="M15 4l5 5-8.5 8.5H6.5L4 15z M9 20h11"/>'}
 ];
 function buildTools(){
@@ -1167,7 +1220,7 @@ function buildTools(){
   TOOLS.forEach(function(t){
     var b = document.createElement("button");
     b.className = "tool"; b.type = "button"; b.dataset.tool = t.k;
-    b.title = t.n + " (" + t.key + ")";
+    b.title = t.n + " (" + t.key + ")" + (t.hint ? "\n" + t.hint : "");
     b.setAttribute("aria-pressed", t.k === S.tool ? "true" : "false");
     b.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">'+t.d+'</svg><span class="lb">'+t.n+'</span>';
     b.addEventListener("click", function(){ setTool(t.k); });
@@ -1181,6 +1234,7 @@ function setTool(k){
   });
   if (k !== "select") { S.active = null; repaintAll(); }
   refreshToolClass();
+  syncTip();
 }
 function buildSwatches(){
   var host = $("swatches");
@@ -1403,7 +1457,7 @@ async function init(){
     sheets.innerHTML = '<div style="color:#fff;padding:40px;text-align:center">ライブラリを読み込めませんでした。ページを再読み込みしてください。</div>';
     return;
   }
-  buildTools(); buildSwatches(); refreshToolClass(); syncUndo();
+  buildTools(); buildSwatches(); refreshToolClass(); syncTip(); syncUndo();
   $("wLabel").textContent = S.width;
   try { await document.fonts.ready; } catch(e){}
   try {
