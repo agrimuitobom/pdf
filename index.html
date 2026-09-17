@@ -263,6 +263,12 @@ select,input[type=number]{
   border:1px solid var(--line);border-radius:var(--r);background:var(--surface-2);color:var(--ink);
 }
 .modal .row{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.modal label.pick{display:flex;align-items:center;gap:8px;font-size:13px;padding:5px 0;cursor:pointer}
+.modal label.pick input{width:auto;margin:0}
+.modal label.pick.off{opacity:.45;cursor:default}
+.modal .fname{display:flex;align-items:center;gap:6px}
+.modal .fname input{flex:1 1 auto}
+.modal .fname span{font-size:13px;color:var(--ink-2)}
 
 .sheetguide{
   color:#c9d1db;font-size:11.5px;text-align:center;padding:0 16px 6px;
@@ -298,7 +304,6 @@ select,input[type=number]{
       <button class="btn ghost" id="zFit">幅に合わせる</button>
     </div>
     <div class="spacer"></div>
-    <button class="btn" id="btnExportSel" hidden>選択ページを書き出す</button>
     <button class="btn primary" id="btnExport"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg>PDFを書き出す</button>
   </div>
 
@@ -676,6 +681,26 @@ async function openPdfData(bytes, name){
   }
 }
 
+/* どのページからも、元に戻す履歴からも参照されなくなったPDFを捨てる。
+   差し替えで開いたときに古いPDFが残り続けるのを防ぐ。 */
+function pruneDocs(){
+  var used = new Set();
+  S.pages.forEach(function(p){ if (p.docId) used.add(p.docId); });
+  var hist = S.history.concat(S.future).join("");
+  Array.from(S.docs.keys()).forEach(function(id){
+    if (used.has(id) || hist.indexOf('"docId":"' + id + '"') >= 0) return;
+    var rec = S.docs.get(id);
+    S.docs.delete(id);
+    Array.from(pageCache.keys()).forEach(function(k){
+      if (k.indexOf(id + ":") === 0) pageCache.delete(k);
+    });
+    Array.from(thumbCache.keys()).forEach(function(k){
+      if (k.indexOf(id + ":") === 0) thumbCache.delete(k);
+    });
+    try { rec.pdf.destroy(); } catch(e){}
+  });
+}
+
 async function openBytes(bytes, name, replace){
   var id = "d" + (++S.docSeq);
   var pdf = await openPdfData(bytes, name);
@@ -692,6 +717,7 @@ async function openBytes(bytes, name, replace){
   }
   if (replace){ S.pages = added; S.sel = new Set(); S.history.length=0; S.future.length=0; syncUndo(); }
   else { pushHistory(); S.pages = S.pages.concat(added); }
+  pruneDocs();
   scheduleSave(true);
   buildSheets(); buildThumbs();
   if (replace) requestAnimationFrame(fitWidth);
@@ -1385,9 +1411,6 @@ function updateSelUI(){
   var n = S.sel.size;
   ["opRotL","opRotR","opUp","opDown","opDup","opDel"].forEach(function(id){ $(id).disabled = !n; });
   $("opBlank").disabled = !S.pages.length;
-  var b = $("btnExportSel");
-  b.hidden = !(n > 0 && n < S.pages.length);
-  b.textContent = "選択" + n + "ページを書き出す";
 }
 
 /* --------------------------------------------------------------- page ops */
@@ -1403,6 +1426,7 @@ function deleteSel(){
   pushHistory();
   S.pages = S.pages.filter(function(p){ return !S.sel.has(p.uid); });
   S.sel = new Set(); S.active = null;
+  pruneDocs();
   buildSheets(); buildThumbs();
 }
 function dupSel(){
@@ -1637,15 +1661,76 @@ async function drawAnnots(out, target, p, mctx, stamps){
     }
   }
 }
-async function exportPdf(onlySelected){
+/* 書き出し名のもとにする、いま開いているPDFの名前 */
+function sourceName(){
+  for (var i=0;i<S.pages.length;i++){
+    var rec = S.docs.get(S.pages[i].docId);
+    if (rec) return rec.name;
+  }
+  return "document.pdf";
+}
+
+/* ファイル名と範囲を決めてから書き出す */
+function askExport(){
+  if (!S.pages.length){ toast("書き出すページがありません"); return; }
+  var base = sourceName().replace(/\.pdf$/i, "");
+  var n = S.sel.size, total = S.pages.length;
+  var canSel = n > 0 && n < total;
+  modal(
+    '<div class="card" role="dialog" aria-modal="true" aria-labelledby="exttl">' +
+      '<div class="ttl" id="exttl">PDFを書き出す</div>' +
+      '<div class="msg">ファイル名と範囲を選んでください。</div>' +
+      '<div class="fname"><input type="text" aria-label="ファイル名"><span>.pdf</span></div>' +
+      '<label class="pick"><input type="radio" name="rg" value="all" checked>' +
+        'すべてのページ（' + total + 'ページ）</label>' +
+      '<label class="pick' + (canSel ? '' : ' off') + '">' +
+        '<input type="radio" name="rg" value="sel"' + (canSel ? '' : ' disabled') + '>' +
+        (canSel ? '選択した' + n + 'ページだけ' : '選択したページだけ（ページ一覧で選ぶと使えます）') + '</label>' +
+      '<div class="row">' +
+        '<button class="btn ghost" data-a="cancel">キャンセル</button>' +
+        '<button class="btn primary" data-a="ok">書き出す</button>' +
+      '</div>' +
+    '</div>',
+    function(back, finish){
+      var input = back.querySelector('input[type="text"]');
+      input.value = base + (canSel ? "_抜粋" : "_編集");
+      function go(){
+        var name = (input.value || base).trim().replace(/[\\/:*?"<>|]/g, "_");
+        var sel = back.querySelector('input[value="sel"]').checked;
+        finish(null);
+        exportPdf(sel, name + ".pdf");
+      }
+      back.querySelectorAll('input[name="rg"]').forEach(function(r){
+        r.addEventListener("change", function(){
+          if (input.value === base + "_編集" || input.value === base + "_抜粋")
+            input.value = base + (r.value === "sel" ? "_抜粋" : "_編集");
+        });
+      });
+      back.addEventListener("click", function(e){
+        var a = e.target.closest("[data-a]");
+        if (!a) return;
+        if (a.dataset.a === "ok") go(); else finish(null);
+      });
+      back.addEventListener("keydown", function(e){
+        e.stopPropagation();
+        if (e.key === "Enter"){ e.preventDefault(); go(); }
+        if (e.key === "Escape"){ e.preventDefault(); finish(null); }
+      });
+      input.focus(); input.select();
+    }
+  );
+}
+
+async function exportPdf(onlySelected, fileName){
   var list = onlySelected ? selectedPages() : S.pages;
   if (!list.length){ toast("書き出すページがありません"); return; }
   busy("PDFを作成しています…");
   try{
     var built = await buildPdf(list, function(i,n){ busy("PDFを作成しています… " + (i+1) + " / " + n); });
-    var first = S.docs.size ? Array.from(S.docs.values())[0].name : "document.pdf";
-    var base = first.replace(/\.pdf$/i, "");
-    var name = base + (onlySelected ? "_抜粋" : "_編集") + ".pdf";
+    var name = fileName;
+    if (!name){
+      name = sourceName().replace(/\.pdf$/i, "") + (onlySelected ? "_抜粋" : "_編集") + ".pdf";
+    }
     var blob = new Blob([built.bytes], {type:"application/pdf"});
     busy(null);
     await saveFile(name, blob);
@@ -1872,8 +1957,7 @@ $("imgIn").addEventListener("change", function(e){
   if (e.target.files[0]) addImage(e.target.files[0]);
   e.target.value = "";
 });
-$("btnExport").addEventListener("click", function(){ exportPdf(false); });
-$("btnExportSel").addEventListener("click", function(){ exportPdf(true); });
+$("btnExport").addEventListener("click", askExport);
 $("btnUndo").addEventListener("click", undo);
 $("btnRedo").addEventListener("click", redo);
 $("zIn").addEventListener("click", function(){ setZoom(S.zoom*1.2); });
@@ -1909,7 +1993,7 @@ document.addEventListener("keydown", function(e){
   var mod = e.ctrlKey || e.metaKey;
   if (mod && e.key.toLowerCase() === "z"){ e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
   if (mod && e.key.toLowerCase() === "y"){ e.preventDefault(); redo(); return; }
-  if (mod && e.key.toLowerCase() === "s"){ e.preventDefault(); exportPdf(false); return; }
+  if (mod && e.key.toLowerCase() === "s"){ e.preventDefault(); askExport(); return; }
   if (e.key === "Delete" || e.key === "Backspace"){
     if (S.active){
       e.preventDefault(); pushHistory();
