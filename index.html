@@ -238,6 +238,10 @@ select,input[type=number]{
   border:2px dashed rgba(255,255,255,.4);border-radius:12px;padding:28px 34px;max-width:420px;
 }
 .stage.dragging .drop{border-color:#fff;background:rgba(255,255,255,.07)}
+#btnSample{
+  background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.55);color:#fff;
+}
+#btnSample:hover{background:rgba(255,255,255,.24);border-color:#fff}
 
 /* inline text editor */
 #ted{
@@ -355,7 +359,7 @@ select,input[type=number]{
     <aside class="rail">
       <div class="rail-head">
         <span class="ttl">ページ</span>
-        <span class="hint" id="pjump"><input type="text" id="pgoIn" inputmode="numeric" aria-label="表示するページ番号" value="1"><span id="pcount">0</span></span>
+        <span class="hint" id="pjump"><input type="text" id="pgoIn" inputmode="numeric" aria-label="表示するページ番号" value="" disabled><span id="pcount">/ 0</span></span>
       </div>
       <div class="pageops">
         <button class="btn icon" id="opRotL" title="左に90°回転" aria-label="左に回転"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9a8 8 0 1 1 2.5 7M3 4v5h5"/></svg></button>
@@ -854,7 +858,9 @@ function buildSheets(){
   if (S.editing) commitText();
   sheets.textContent = "";
   $("emptyStage").hidden = S.pages.length > 0;
-  $("pcount").textContent = S.pages.length ? "/ " + S.pages.length : "/ 0";
+  $("pcount").textContent = "/ " + S.pages.length;
+  $("pgoIn").disabled = !S.pages.length;
+  syncFindEnabled();
   syncPageNo();
   $("btnExport").disabled = !S.pages.length;
   S.pages.forEach(function(p, i){
@@ -1242,6 +1248,9 @@ function currentPageIndex(){
 function syncPageNo(){
   var el = $("pgoIn");
   if (document.activeElement !== el) el.value = S.pages.length ? (currentPageIndex() + 1) : "";
+}
+function syncFindEnabled(){
+  $("findIn").disabled = !S.pages.length;
 }
 function gotoPage(n){
   var i = clamp(Math.round(n) - 1, 0, S.pages.length - 1);
@@ -2305,6 +2314,7 @@ async function init(){
 
   // サンプルは毎回作らない。起動を軽くし、すぐ自分のPDFを開けるようにする。
   $("emptyStage").hidden = false;
+  syncFindEnabled(); syncFind();
 }
 
 async function openSample(){
