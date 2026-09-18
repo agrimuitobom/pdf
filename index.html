@@ -571,7 +571,8 @@ body.organizing .appbar #findBox{display:none}
     <div class="props">
       <div class="field" id="fColor"><label>色</label><div class="swatches" id="swatches"></div></div>
       <div class="field" id="fWidth"><label>太さ</label><input type="range" id="rWidth" min="1" max="18" step="1" value="2"><span class="hint" id="wLabel" style="width:22px">2</span></div>
-      <div class="field" id="fSize"><label>文字</label>
+      <div class="field" id="fFont"><label>書体</label><select id="selFont" aria-label="書体"></select></div>
+      <div class="field" id="fSize"><label>大きさ</label>
         <select id="selSize">
           <option>9</option><option>10.5</option><option selected>12</option><option>14</option><option>16</option><option>20</option><option>24</option><option>32</option>
         </select><span class="hint">pt</span>
@@ -655,6 +656,46 @@ var LineCapStyle = PDFLib && PDFLib.LineCapStyle;
 if (pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 
 var FONT = '"Hiragino Kaku Gothic ProN","Yu Gothic Medium","Yu Gothic","Noto Sans JP",Meiryo,system-ui,sans-serif';
+
+/* 書き込んだテキストは書き出しのときに画像にしているので、PDFへフォントを
+   埋め込む必要がない。この端末で表示できる書体ならそのまま使えるし、
+   相手の端末にその書体が無くても見た目は変わらない。
+   probe は「入っているか」を調べるための代表的な1書体。 */
+var FONTS = [
+  {id:"gothic",  name:"ゴシック体", probe:null,
+   css:'"Hiragino Kaku Gothic ProN","Yu Gothic Medium","Yu Gothic","Noto Sans JP",Meiryo,system-ui,sans-serif'},
+  {id:"mincho",  name:"明朝体", probe:"Yu Mincho",
+   css:'"Hiragino Mincho ProN","Yu Mincho","YuMincho","MS PMincho","Noto Serif JP",serif'},
+  {id:"udkyoka", name:"UDデジタル教科書体", probe:"UD デジタル教科書体 N-R",
+   css:'"UD デジタル教科書体 N-R","UD Digi Kyokasho N-R","UD デジタル教科書体 NK-R",sans-serif'},
+  {id:"bizgo",   name:"BIZ UDゴシック", probe:"BIZ UDGothic",
+   css:'"BIZ UDGothic","BIZ UDPGothic",sans-serif'},
+  {id:"bizmin",  name:"BIZ UD明朝", probe:"BIZ UDMincho",
+   css:'"BIZ UDMincho","BIZ UDPMincho",serif'},
+  {id:"maru",    name:"丸ゴシック", probe:"Hiragino Maru Gothic ProN",
+   css:'"Hiragino Maru Gothic ProN","Yu Gothic UI","M PLUS Rounded 1c",sans-serif'},
+  {id:"mono",    name:"等幅", probe:null,
+   css:'"SFMono-Regular",Consolas,"MS Gothic","Osaka-Mono",monospace'}
+];
+/* その書体が本当に入っているかを、字幅の違いで調べる */
+function fontAvailable(name){
+  if (!name) return true;
+  var c = document.createElement("canvas").getContext("2d");
+  var sample = "あ漢A1永";
+  var base = {};
+  ["monospace","serif","sans-serif"].forEach(function(g){
+    c.font = "72px " + g; base[g] = c.measureText(sample).width;
+  });
+  return ["monospace","serif","sans-serif"].some(function(g){
+    c.font = '72px "' + name + '",' + g;
+    return Math.abs(c.measureText(sample).width - base[g]) > 0.5;
+  });
+}
+function fontCss(id){
+  for (var i=0;i<FONTS.length;i++) if (FONTS[i].id === id) return FONTS[i].css;
+  return FONT;
+}
+function annotFont(a){ return fontCss(a && a.font ? a.font : "gothic"); }
 var NO_START = "、。，．,.）)」』】〉》”’!?！？…ー・ゃゅょっァィゥェォッャュョ";
 var COLORS = ["#c0392b","#1f4f8f","#1d7a4b","#b8860b","#7b3fa0","#15202b","#ffffff"];
 
@@ -664,6 +705,7 @@ var S = {
   sel: new Set(),
   tool: "select",
   color: "#c0392b",
+  font: "gothic",
   width: 2,
   size: 12,
   zoom: 1,
@@ -1098,6 +1140,12 @@ function showHelp(){
         '<tr><th>2本指を広げる/縮める</th><td>拡大・縮小</td></tr>' +
         '<tr><th>ページ一覧を長押し</th><td>そのまま動かして並べ替え</td></tr>' +
       '</table>' +
+      '<h4>書体について</h4>' +
+      '<div class="msg">テキストの書体は、上の「書体」から選べます。' +
+      'この端末に入っている書体だけが並びます（学校のWindowsなら、' +
+      'UDデジタル教科書体やBIZ UDゴシックも選べることが多いです）。' +
+      '書き出したPDFでは書体が画像として焼き込まれるので、' +
+      '相手の端末にその書体が無くても見た目は変わりません。</div>' +
       '<h4>ページ整理</h4>' +
       '<div class="msg">上の「ページ整理」に切り替えると、ページの組み替えだけに画面を使えます。' +
       'ドラッグで並べ替え、ページの間の＋で白紙や別のPDFを差し込み、' +
@@ -1434,11 +1482,16 @@ function refreshToolClass(){
   /* 書き込みを選んでいるときは、その書き込みの設定を出す */
   var a = S.active ? S.active.a : null;
   var drawTool = (S.tool === "pen" || S.tool === "marker" || S.tool === "rect" || S.tool === "line");
-  $("fSize").style.display  = (a ? (a.t === "text")   : (S.tool === "text")) ? "" : "none";
+  var isText = a ? (a.t === "text") : (S.tool === "text");
+  $("fSize").style.display  = isText ? "" : "none";
+  $("fFont").style.display  = isText ? "" : "none";
   $("fWidth").style.display = (a ? annotWidth(a)      : drawTool) ? "" : "none";
   $("fColor").style.display = (a ? annotColors(a)     : !(S.tool === "erase" || S.tool === "select")) ? "" : "none";
   if (a){
-    if (a.t === "text") $("selSize").value = String(a.size);
+    if (a.t === "text"){
+      $("selSize").value = String(a.size);
+      $("selFont").value = a.font || "gothic";
+    }
     if (annotWidth(a)){
       var wv = (a.t === "marker") ? Math.round(a.w / 4) : a.w;
       $("rWidth").value = String(wv); $("wLabel").textContent = wv;
@@ -1446,7 +1499,7 @@ function refreshToolClass(){
     syncSwatches();
   }
   var props = document.querySelector(".props");
-  var any = ["fColor","fWidth","fSize"].some(function(id){ return $(id).style.display !== "none"; });
+  var any = ["fColor","fWidth","fSize","fFont"].some(function(id){ return $(id).style.display !== "none"; });
   props.classList.toggle("empty", !any);
 }
 
@@ -1545,7 +1598,7 @@ function wrapText(ctx, text, maxW){
   return out.length ? out : [""];
 }
 function textMetrics(ctx, a){
-  ctx.font = a.size + "px " + FONT;
+  ctx.font = a.size + "px " + annotFont(a);
   var lines = wrapText(ctx, a.text, a.w);
   var lh = a.size * 1.5;
   return {lines: lines, lh: lh, h: Math.max(lh, lines.length * lh)};
@@ -1581,7 +1634,7 @@ function drawAnnot(ctx, a){
   } else if (a.t === "text"){
     var m = textMetrics(ctx, a);
     flipped(ctx, a.x, a.y, function(){
-      ctx.font = a.size + "px " + FONT;
+      ctx.font = a.size + "px " + annotFont(a);
       ctx.fillStyle = a.c; ctx.textBaseline = "alphabetic";
       for (var i=0;i<m.lines.length;i++) ctx.fillText(m.lines[i], 0, (i + 0.98) * m.lh);
     });
@@ -1712,7 +1765,25 @@ function syncFloatbar(){
       fbar.appendChild(lw); fbar.appendChild(rg);
     }
     if (!narrow && a.t === "text"){
-      var ls = document.createElement("label"); ls.textContent = "文字";
+      var lf = document.createElement("label"); lf.textContent = "書体";
+      var sf = document.createElement("select");
+      sf.setAttribute("aria-label", "書体");
+      Array.from($("selFont").options).forEach(function(o){
+        var c = document.createElement("option");
+        c.value = o.value; c.textContent = o.textContent;
+        c.style.fontFamily = o.style.fontFamily;
+        if (o.value === (a.font || "gothic")) c.selected = true;
+        sf.appendChild(c);
+      });
+      sf.addEventListener("change", function(){
+        pushHistory(); a.font = sf.value; S.font = sf.value;
+        try { localStorage.setItem("pdfk.font", S.font); } catch(e){}
+        $("selFont").value = sf.value;
+        paintSheet(p); markThumb(p); syncFloatbar();
+      });
+      fbar.appendChild(lf); fbar.appendChild(sf);
+
+      var ls = document.createElement("label"); ls.textContent = "大きさ";
       var se = document.createElement("select");
       se.setAttribute("aria-label", "文字の大きさ");
       [9,10.5,12,14,16,20,24,32].forEach(function(v){
@@ -2010,7 +2081,7 @@ function bindSheet(p, canvas){
       var hit3 = hitTest(p, ctx, pt, "text");
       if (hit3){ startText(p, hit3); return; }
       var a = {id:++S.uid, t:"text", x:pt[0], y:pt[1], w:Math.max(60, Math.min(240, p.vx0 + p.pw - pt[0] - 12)),
-               text:"", size:S.size, c:S.color};
+               text:"", size:S.size, c:S.color, font:S.font};
       startText(p, a, true);
       return;
     }
@@ -2120,7 +2191,7 @@ function startText(p, a, isNew){
   p.el.appendChild(ted);
   ted.hidden = false;
   ted.value = a.text || "";
-  ted.style.fontFamily = FONT;
+  ted.style.fontFamily = annotFont(a);
   ted.style.fontSize = (a.size * z) + "px";
   ted.style.lineHeight = "1.5";
   ted.style.width = (a.w * z) + "px";
@@ -2726,6 +2797,23 @@ function setTool(k){
   syncFloatbar();
   tipForTool(k);
 }
+/* 端末に入っている書体だけを並べる。使えないものを見せても選べないだけなので。 */
+function buildFonts(){
+  var sel = $("selFont");
+  sel.textContent = "";
+  var avail = FONTS.filter(function(f){ return fontAvailable(f.probe); });
+  avail.forEach(function(f){
+    var o = document.createElement("option");
+    o.value = f.id; o.textContent = f.name;
+    o.style.fontFamily = f.css;
+    sel.appendChild(o);
+  });
+  var saved = null;
+  try { saved = localStorage.getItem("pdfk.font"); } catch(e){}
+  if (saved && avail.some(function(f){ return f.id === saved; })) S.font = saved;
+  sel.value = S.font;
+}
+
 function buildSwatches(){
   var host = $("swatches");
   COLORS.forEach(function(c){
@@ -3211,6 +3299,15 @@ $("rWidth").addEventListener("input", function(e){
     S.width = v;
   }
 });
+$("selFont").addEventListener("change", function(e){
+  S.font = e.target.value;
+  try { localStorage.setItem("pdfk.font", S.font); } catch(err){}
+  if (S.active && S.active.a.t === "text"){
+    pushHistory(); S.active.a.font = S.font;
+    paintSheet(S.active.p); markThumb(S.active.p); syncFloatbar();
+  }
+  if (S.editing) ted.style.fontFamily = fontCss(S.font);
+});
 $("selSize").addEventListener("change", function(e){
   S.size = parseFloat(e.target.value);
   if (S.active && S.active.a.t === "text"){ pushHistory(); S.active.a.size = S.size; paintSheet(S.active.p); }
@@ -3268,7 +3365,7 @@ async function init(){
     sheets.innerHTML = '<div style="color:#fff;padding:40px;text-align:center">ライブラリを読み込めませんでした。ページを再読み込みしてください。</div>';
     return;
   }
-  buildTools(); buildSwatches(); refreshToolClass(); syncUndo();
+  buildTools(); buildFonts(); buildSwatches(); refreshToolClass(); syncUndo();
   $("wLabel").textContent = S.width;
   try { await document.fonts.ready; } catch(e){}
 
