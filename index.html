@@ -205,6 +205,36 @@ select,input[type=number]{
   font-variant-numeric:tabular-nums;
 }
 @media (max-width:900px){ #findBox input{width:84px} #findBox .hint{display:none} }
+
+/* 上の帯は1行に収める。幅が足りなくなるにつれ、説明文 → ボタンの文字 → 検索欄の順にたたむ */
+.appbar{position:relative}
+.find-toggle,#zFit .fit-ic{display:none}
+@media (max-width:1439px){
+  .brand span{display:none}
+  .appbar{gap:8px}
+}
+@media (max-width:1339px){
+  .appbar #btnOpen .lb,.appbar #btnAdd .lb,.appbar #zFit .lb{display:none}
+  .appbar #btnOpen,.appbar #btnAdd,.appbar #zFit{padding:6px 8px}
+  #zFit .fit-ic{display:block}
+}
+@media (max-width:1179px){
+  .find-toggle{display:inline-flex}
+  .appbar #findBox{display:none}
+  .appbar #findBox.open-narrow{
+    display:flex;position:absolute;left:auto;right:14px;width:360px;
+    top:calc(100% - 2px);z-index:20;
+    background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+    padding:5px 8px;box-shadow:var(--shadow-md);
+  }
+  .appbar #findBox.open-narrow input{flex:1 1 auto;width:auto}
+  .appbar #findBox.open-narrow .hint{display:inline}
+}
+@media (max-width:899px){
+  .appbar{gap:6px;padding-left:10px;padding-right:10px}
+  .appbar .sep,.lb-pre{display:none}
+}
+@media (max-width:819px){ .appbar .brand{display:none} }
 .thumbs.reordering{touch-action:none}
 .thumb .mark{
   position:absolute;top:4px;right:4px;width:7px;height:7px;border-radius:50%;
@@ -477,14 +507,7 @@ body.organizing .appbar #findBox{display:none}
   .appbar .brand,
   .appbar #btnOpen,.appbar #btnAdd,.appbar #btnUndo,.appbar #btnRedo,
   .appbar .field,.appbar .sep,.appbar #btnHelp,.appbar #btnPrint{display:none}
-  .appbar #findBox.open-narrow{
-    display:flex;position:absolute;left:6px;right:6px;
-    top:calc(100% - 2px);z-index:20;
-    background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
-    padding:5px 8px;box-shadow:var(--shadow-md);
-  }
-  .appbar{position:relative}
-  .appbar #findBox.open-narrow input{flex:1 1 auto;width:auto}
+  .appbar #findBox.open-narrow{left:6px;right:6px;width:auto}
   .appbar .spacer{display:none}
   .docmeta{display:flex}
   .appbar .btn{min-width:40px;min-height:40px;justify-content:center}
@@ -561,8 +584,8 @@ body.organizing .appbar #findBox{display:none}
       <button type="button" id="modeOrg" aria-pressed="false">ページ整理</button>
     </div>
     <div class="docmeta only-narrow" id="docMeta"><b id="docName">PDFを開いてください</b><span id="docSub"></span></div>
-    <button class="btn" id="btnOpen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h6l2 2h10v10H3z"/></svg>開く</button>
-    <button class="btn" id="btnAdd"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>PDFを追加</button>
+    <button class="btn" id="btnOpen" title="PDFを開く"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h6l2 2h10v10H3z"/></svg><span class="lb">開く</span></button>
+    <button class="btn" id="btnAdd" title="PDFを追加"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span class="lb">PDFを追加</span></button>
     <span class="sep" style="height:24px"></span>
     <button class="btn icon" id="btnUndo" title="元に戻す (Ctrl+Z)" aria-label="元に戻す"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h10a5 5 0 0 1 0 10H8M4 9l4-4M4 9l4 4"/></svg></button>
     <button class="btn icon" id="btnRedo" title="やり直す (Ctrl+Shift+Z)" aria-label="やり直す"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 9H10a5 5 0 0 0 0 10h6M20 9l-4-4M20 9l-4 4"/></svg></button>
@@ -571,7 +594,7 @@ body.organizing .appbar #findBox{display:none}
       <button class="btn icon" id="zOut" aria-label="縮小">−</button>
       <span class="hint" id="zLabel" style="min-width:42px;text-align:center;font-variant-numeric:tabular-nums">100%</span>
       <button class="btn icon" id="zIn" aria-label="拡大">＋</button>
-      <button class="btn ghost" id="zFit">幅に合わせる</button>
+      <button class="btn ghost" id="zFit" title="幅に合わせる (Ctrl+0)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="fit-ic"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg><span class="lb">幅に合わせる</span></button>
     </div>
     <span class="sep" style="height:24px"></span>
     <div class="field" id="findBox">
@@ -582,10 +605,10 @@ body.organizing .appbar #findBox{display:none}
       <button class="btn icon" id="findNext" aria-label="次の一致" title="次の一致 (Enter)">›</button>
     </div>
     <div class="spacer"></div>
-    <button class="btn icon only-narrow" id="btnFindNarrow" aria-label="文字を探す"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="6"/><path d="M15.5 15.5L20 20"/></svg></button>
+    <button class="btn icon find-toggle" id="btnFindNarrow" title="文字を探す (F)" aria-label="文字を探す"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="6"/><path d="M15.5 15.5L20 20"/></svg></button>
     <button class="btn icon" id="btnHelp" title="使い方とショートカット (?)" aria-label="使い方とショートカット">?</button>
     <button class="btn icon" id="btnPrint" title="印刷 (Ctrl+P)" aria-label="印刷"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 9V4h10v5M7 17H4v-8h16v8h-3M7 14h10v6H7z"/></svg></button>
-    <button class="btn primary" id="btnExport"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg><span class="lb">PDFを書き出す</span></button>
+    <button class="btn primary" id="btnExport"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg><span class="lb"><span class="lb-pre">PDFを</span>書き出す</span></button>
     <button class="btn icon only-narrow" id="btnMore" aria-label="その他のメニュー"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg></button>
   </div>
 
