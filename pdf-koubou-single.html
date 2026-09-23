@@ -1620,13 +1620,28 @@ async function renderSheet(p){
   paintSheet(p);
 }
 
+/* pdf.js の PageViewport と同じ式で、PDF座標 -> 画面の変換行列を作る。
+   白紙ページや描画前のページには pdf.js の viewport が無いため、これを使う。
+   以前は回転を無視した行列にしていたため、回転した白紙ページに書いた内容が
+   ページの外の座標に保存され、書き出すと消えていた。 */
+function viewTransform(box, scale, rotation){
+  var cx = (box[2] + box[0]) / 2, cy = (box[3] + box[1]) / 2;
+  var r = ((rotation % 360) + 360) % 360, A, B, C, D;
+  if (r === 90)       { A = 0;  B = 1;  C = 1;  D = 0;  }
+  else if (r === 180) { A = -1; B = 0;  C = 0;  D = 1;  }
+  else if (r === 270) { A = 0;  B = -1; C = -1; D = 0;  }
+  else                { A = 1;  B = 0;  C = 0;  D = -1; }
+  var ox, oy;
+  if (A === 0){ ox = Math.abs(cy - box[1]) * scale; oy = Math.abs(cx - box[0]) * scale; }
+  else        { ox = Math.abs(cx - box[0]) * scale; oy = Math.abs(cy - box[1]) * scale; }
+  return [A * scale, B * scale, C * scale, D * scale,
+          ox - A * scale * cx - C * scale * cy,
+          oy - B * scale * cx - D * scale * cy];
+}
 function matrixFor(p){
-  if (p.vp){
-    var t = p.vp.transform;
-    return [t[0]*dpr, t[1]*dpr, t[2]*dpr, t[3]*dpr, t[4]*dpr, t[5]*dpr];
-  }
-  var s = S.zoom * dpr;
-  return [s, 0, 0, -s, -p.vx0*s, p.vy1*s];
+  var t = p.vp ? p.vp.transform
+               : viewTransform([p.vx0, p.vy0, p.vx0 + p.pw, p.vy1], S.zoom, totalRot(p));
+  return [t[0]*dpr, t[1]*dpr, t[2]*dpr, t[3]*dpr, t[4]*dpr, t[5]*dpr];
 }
 function toScreen(p, x, y){   // pdf pt -> css px inside sheet
   var m = matrixFor(p);
@@ -2577,6 +2592,90 @@ async function loadSource(srcCache, docId){
   return srcCache.get(docId);
 }
 
+/* しおり（目次）を引き継ぐ。ページを組み直すと元のしおりは写らないので、
+   pdf.js でしおりを読み、行き先を書き出し後のページに付け替えて作り直す。
+   削除したページを指すしおりは落とす（子に生き残りがあれば見出しとして残す）。
+   複数のPDFを結合したときは、最初に出てくる順に並べる。 */
+async function copyOutlines(out, list, flatAt){
+  var L = PDFLib, ctx = out.context, pages = out.getPages();
+  var where = new Map();                       // "docId:元のページ番号" -> 出力のページ番号
+  var order = [];
+  list.forEach(function(p, i){
+    if (p.blank) return;
+    var k = p.docId + ":" + p.srcIndex;
+    if (!where.has(k)) where.set(k, i);
+    if (order.indexOf(p.docId) < 0) order.push(p.docId);
+  });
+
+  async function resolve(pdf, dest){
+    try {
+      if (typeof dest === "string") dest = await pdf.getDestination(dest);
+      if (!Array.isArray(dest) || !dest.length) return null;
+      var ref = dest[0];
+      var idx = (typeof ref === "number") ? ref : await pdf.getPageIndex(ref);
+      return {idx: idx, dest: dest};
+    } catch(e){ return null; }
+  }
+  async function collect(docId, pdf, items){
+    var got = [];
+    for (var i=0;i<items.length;i++){
+      var it = items[i];
+      var kids = (it.items && it.items.length) ? await collect(docId, pdf, it.items) : [];
+      var r = it.dest ? await resolve(pdf, it.dest) : null;
+      var at = r ? where.get(docId + ":" + r.idx) : undefined;
+      if (at === undefined && !kids.length) continue;
+      got.push({title: it.title || "", at: at, dest: r ? r.dest : null,
+                closed: (it.count || 0) < 0, kids: kids});
+    }
+    return got;
+  }
+
+  var roots = [];
+  for (var d=0; d<order.length; d++){
+    var rec = S.docs.get(order[d]);
+    if (!rec || !rec.pdf) continue;
+    var ol = null;
+    try { ol = await rec.pdf.getOutline(); } catch(e){ ol = null; }
+    if (ol && ol.length) roots = roots.concat(await collect(order[d], rec.pdf, ol));
+  }
+  if (!roots.length) return 0;
+
+  function destFor(n){
+    var pageRef = pages[n.at].ref;
+    // 画像にしたページは座標系が変わるので、ページ全体を表示させる
+    if (flatAt.has(n.at) || !n.dest) return ctx.obj([pageRef, L.PDFName.of("Fit")]);
+    var kind = (n.dest[1] && n.dest[1].name) ? n.dest[1].name : "Fit";
+    var rest = n.dest.slice(2).map(function(v){ return (typeof v === "number") ? v : null; });
+    return ctx.obj([pageRef, L.PDFName.of(kind)].concat(rest));
+  }
+  var total = 0;
+  function emit(nodes, parentRef){
+    var refs = nodes.map(function(){ return ctx.nextRef(); });
+    var visible = 0;
+    nodes.forEach(function(n, i){
+      var dict = {Title: L.PDFHexString.fromText(n.title), Parent: parentRef};
+      if (i > 0) dict.Prev = refs[i - 1];
+      if (i < nodes.length - 1) dict.Next = refs[i + 1];
+      if (n.at !== undefined) dict.Dest = destFor(n);
+      total++;
+      visible++;
+      if (n.kids.length){
+        var sub = emit(n.kids, refs[i]);
+        dict.First = sub.first; dict.Last = sub.last;
+        dict.Count = n.closed ? -sub.visible : sub.visible;
+        if (!n.closed) visible += sub.visible;
+      }
+      ctx.assign(refs[i], ctx.obj(dict));
+    });
+    return {first: refs[0], last: refs[refs.length - 1], visible: visible};
+  }
+  var rootRef = ctx.nextRef();
+  var top = emit(roots, rootRef);
+  ctx.assign(rootRef, ctx.obj({Type: L.PDFName.of("Outlines"), First: top.first, Last: top.last, Count: top.visible}));
+  out.catalog.set(L.PDFName.of("Outlines"), rootRef);
+  return total;
+}
+
 async function buildPdf(list, onProgress){
   var PDFDocument = PDFLib.PDFDocument, degrees = PDFLib.degrees;
   var out = await PDFDocument.create();
@@ -2632,6 +2731,9 @@ async function buildPdf(list, onProgress){
     if (pg.annots && pg.annots.length) await drawAnnots(out, target, pg, mctx, stamps);
     await new Promise(function(r){ setTimeout(r, 0); });
   }
+  var flatAt = new Set();
+  plan.forEach(function(it, i){ if (it.how === "flat") flatAt.add(i); });
+  try { await copyOutlines(out, list, flatAt); } catch(e){ console.warn("しおりを引き継げませんでした", e); }
   out.setProducer("PDF工房");
   return {bytes: await out.save({useObjectStreams:false}), redacted: redacted, locked: locked};
 }
