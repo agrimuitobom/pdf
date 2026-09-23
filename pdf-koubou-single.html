@@ -409,6 +409,32 @@ select,input[type=number]{
 .modal .fname input{flex:1 1 auto}
 .modal .fname span{font-size:13px;color:var(--ink-2)}
 
+/* 日付印・名前印 */
+.modal .card.stampcard{width:min(520px,calc(100vw - 32px));max-height:90vh;overflow:auto}
+.stampcard .seg{margin:2px 0 12px}
+.stampbody{display:flex;gap:18px;align-items:flex-start}
+.stampprev{
+  flex:none;width:150px;height:150px;border:1px solid var(--line);border-radius:8px;
+  background:#fff;
+}
+.stampform{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:9px}
+.stampform label.f{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--ink-2)}
+.stampform .two{display:flex;gap:8px}
+.stampform .two>*{flex:1 1 0;min-width:0}
+.stampform select{
+  font:inherit;font-size:14px;padding:7px 8px;border:1px solid var(--line);border-radius:var(--r);
+  background:var(--surface-2);color:var(--ink);width:100%;box-sizing:border-box;
+}
+.stampform .inks{display:flex;gap:10px;align-items:center;font-size:12px;color:var(--ink-2)}
+.stampform .inks label{display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--ink)}
+.stampform .inks input{width:auto;margin:0}
+.stampform .inks i{display:inline-block;width:14px;height:14px;border-radius:50%}
+.stampform .note{font-size:11.5px;color:var(--ink-2);line-height:1.5}
+@media (max-width:520px){
+  .stampbody{flex-direction:column;align-items:center}
+  .stampform{width:100%}
+}
+
 .sheetguide{
   color:#c9d1db;font-size:11.5px;text-align:center;padding:0 16px 6px;
 }
@@ -593,7 +619,7 @@ body.organizing .appbar #findBox{display:none}
   }
   .props.empty{display:none}
   .props .field>label{white-space:nowrap}
-  .props #btnImage{display:none}
+  .props #btnImage,.props #btnStamp{display:none}
   .sw{width:24px;height:24px}
   input[type=range]{width:78px}
   .toolwrap{order:2;position:relative;min-width:0}
@@ -688,6 +714,7 @@ body.organizing .appbar #findBox{display:none}
         </select><span class="hint">pt</span>
       </div>
       <button class="btn" id="btnImage"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M4 16l4.5-4.5 3 3 4-5L20 15"/></svg>画像・印鑑</button>
+      <button class="btn" id="btnStamp" title="日付印・名前印を作って押す"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M4.2 9.5h15.6M4.2 14.5h15.6"/></svg>日付印・名前印</button>
     </div>
   </div>
 
@@ -1132,6 +1159,7 @@ var ICON = {
   del:  '<path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13"/>',
   out:  '<path d="M12 4v11M7 11l5 5 5-5M5 20h14"/>',
   print:'<path d="M7 9V4h10v5M7 17H4v-8h16v8h-3M7 14h10v6H7z"/>',
+  stamp:'<circle cx="12" cy="12" r="8.5"/><path d="M4.2 9.5h15.6M4.2 14.5h15.6"/>',
   open: '<path d="M3 7h6l2 2h10v10H3z"/>',
   add:  '<path d="M12 5v14M5 12h14"/>',
   undo: '<path d="M4 9h10a5 5 0 0 1 0 10H8M4 9l4-4M4 9l4 4"/>',
@@ -1264,6 +1292,10 @@ function showHelp(){
       'UDデジタル教科書体やBIZ UDゴシックも選べることが多いです）。' +
       '書き出したPDFでは書体が画像として焼き込まれるので、' +
       '相手の端末にその書体が無くても見た目は変わりません。</div>' +
+      '<h4>日付印・名前印</h4>' +
+      '<div class="msg">「日付印・名前印」から、所属・日付・名前を入れたハンコを作って押せます' +
+      '（スマートフォンでは右上の「⋯」から）。押した後は画像と同じように動かしたり、大きさを変えたりできます。' +
+      '入れた所属・名前・色・大きさは次回も残ります。</div>' +
       '<h4>ページ整理</h4>' +
       '<div class="msg">上の「ページ整理」に切り替えると、ページの組み替えだけに画面を使えます。' +
       'ドラッグで並べ替え、ページの間の＋で白紙や別のPDFを差し込み、' +
@@ -3461,6 +3493,218 @@ function viewCenter(p){
   return toPdf(p, (x0 + x1) / 2 - r.left, (y0 + y1) / 2 - r.top);
 }
 
+/* ------------------------------------------------------------ 日付印・名前印
+   ハンコの画像をその場で作り、画像として置く（置いた後は移動・拡大縮小できる）。 */
+var STAMP_INKS = [["朱", "#d23a2f"], ["紺", "#1f3f8f"], ["黒", "#222222"]];
+var STAMP_SERIF = '"Yu Mincho","YuMincho","Hiragino Mincho ProN","Hiragino Mincho Pro","Noto Serif JP","Noto Serif CJK JP","IPAexMincho","MS PMincho",serif';
+var STAMP_SANS = '"Yu Gothic","YuGothic","Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Noto Sans CJK JP","Meiryo",sans-serif';
+function stampPrefs(){
+  var d = {kind:"date", top:"", name:"", fmt:"wareki", ink:STAMP_INKS[0][1], dateMm:18, nameMm:10.5};
+  try {
+    var v = JSON.parse(localStorage.getItem("pdfk.stamp") || "null");
+    if (v) for (var k in d) if (v[k] != null) d[k] = v[k];
+  } catch(e){}
+  return d;
+}
+function isoToday(){
+  var t = new Date();
+  return t.getFullYear() + "-" + String(t.getMonth()+1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0");
+}
+function stampDateText(iso, fmt){
+  var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
+  if (!m) return "";
+  var y = +m[1], mo = +m[2], d = +m[3];
+  if (fmt === "seireki") return y + "." + mo + "." + d;
+  if (fmt === "short") return "'" + String(y).slice(-2) + "." + mo + "." + d;
+  // 令和は2019年5月1日から
+  if (y > 2019 || (y === 2019 && mo >= 5)) return "R" + (y - 2018) + "." + mo + "." + d;
+  return "H" + (y - 1988) + "." + mo + "." + d;
+}
+/* 1行を、中心 (cx, cy) に、幅 maxW に収まるよう（はみ出すなら横に詰めて）描く */
+function stampLine(g, text, cx, cy, fs, font, maxW){
+  if (!text) return;
+  g.font = "700 " + fs + "px " + font;
+  var m = g.measureText(text);
+  var w = m.width, k = w > maxW ? maxW / w : 1;
+  var asc = m.actualBoundingBoxAscent || fs * 0.8, dsc = m.actualBoundingBoxDescent || fs * 0.1;
+  g.save();
+  g.translate(cx, cy + (asc - dsc) / 2);
+  g.scale(k, 1);
+  g.textAlign = "center"; g.textBaseline = "alphabetic";
+  g.fillText(text, 0, 0);
+  g.restore();
+}
+/* 1文字を、箱 (cx, cy, w, h) いっぱいに描く（縦長・横長に伸ばす） */
+function stampChar(g, ch, cx, cy, w, h, font){
+  var fs = 100;
+  g.font = "700 " + fs + "px " + font;
+  var m = g.measureText(ch);
+  var gw = (m.actualBoundingBoxLeft || 0) + (m.actualBoundingBoxRight || m.width) || fs;
+  var gh = (m.actualBoundingBoxAscent || fs * 0.8) + (m.actualBoundingBoxDescent || fs * 0.1);
+  var kx = w / gw, ky = h / gh;
+  // 縦横の伸ばし方の差は1.5倍までにする（極端につぶれないように）
+  if (kx > ky * 1.5) kx = ky * 1.5;
+  if (ky > kx * 1.5) ky = kx * 1.5;
+  g.save();
+  g.translate(cx, cy);
+  g.scale(kx, ky);
+  var left = m.actualBoundingBoxLeft || 0, right = m.actualBoundingBoxRight || m.width;
+  var asc = m.actualBoundingBoxAscent || fs * 0.8, dsc = m.actualBoundingBoxDescent || fs * 0.1;
+  g.textAlign = "left"; g.textBaseline = "alphabetic";
+  // 字の墨の部分（left〜right, asc〜dsc）の真ん中を箱の中心に合わせる
+  g.fillText(ch, -(right - left) / 2, (asc - dsc) / 2);
+  g.restore();
+}
+function drawStamp(o, px){
+  var c = document.createElement("canvas");
+  c.width = c.height = px;
+  var g = c.getContext("2d"), R = px / 2;
+  g.globalAlpha = 0.92;
+  g.strokeStyle = g.fillStyle = o.ink;
+  var bw = px * (o.kind === "date" ? 0.034 : 0.05);
+  g.lineWidth = bw;
+  g.beginPath(); g.arc(R, R, R - bw / 2 - px * 0.01, 0, Math.PI * 2); g.stroke();
+  var ri = R - bw - px * 0.01;   // 枠の内側の半径
+  function chord(dy){ return 2 * Math.sqrt(Math.max(0, ri * ri - dy * dy)); }
+  if (o.kind === "date"){
+    var band = px * 0.16, lw = px * 0.022;
+    [-band, band].forEach(function(dy){
+      var half = chord(Math.abs(dy)) / 2;
+      g.fillRect(R - half, R + dy - lw / 2, half * 2, lw);
+    });
+    var seg = ri - band - lw / 2;             // 上下の段の高さ
+    var fsTB = seg * 0.5, cyT = R - band - lw / 2 - seg * 0.44;
+    stampLine(g, o.top, R, cyT, fsTB, STAMP_SERIF, chord(R - (cyT - fsTB / 2)) * 0.9);
+    var fsM = band * 2 * 0.62;
+    stampLine(g, stampDateText(o.date, o.fmt), R, R, fsM, STAMP_SANS, chord(fsM / 2) * 0.9);
+    var cyB = R + band + lw / 2 + seg * 0.44;
+    stampLine(g, o.name, R, cyB, fsTB, STAMP_SERIF, chord((cyB + fsTB / 2) - R) * 0.9);
+  } else {
+    var chars = Array.from(String(o.name || "").replace(/\s+/g, "")).slice(0, 6), n = chars.length;
+    if (n === 4){
+      // 4文字は2列に（右の列から読む）
+      var side = ri * Math.SQRT2 * 0.94, cell = side / 2, x0 = R - side / 2, y0 = R - side / 2;
+      [[1,0],[1,1],[0,0],[0,1]].forEach(function(q, i){
+        stampChar(g, chars[i], x0 + cell * (q[0] + 0.5), y0 + cell * (q[1] + 0.5), cell * 0.9, cell * 0.9, STAMP_SERIF);
+      });
+    } else if (n){
+      var H = ri * 2 * (n === 1 ? 0.62 : 0.84), ch = H / n, top = R - H / 2;
+      for (var i = 0; i < n; i++){
+        var cy = top + ch * (i + 0.5);
+        var dy = Math.abs(cy - R) + ch / 2;
+        var w = Math.min(chord(dy) * 0.86, ch * 1.5, ri * 1.2);
+        stampChar(g, chars[i], R, cy, w, ch * 0.9, STAMP_SERIF);
+      }
+    }
+  }
+  return c;
+}
+function askStamp(){
+  if (!S.pages.length){ toast("先にPDFを開いてください"); return; }
+  var o = stampPrefs();
+  o.date = isoToday();
+  var inks = STAMP_INKS.map(function(k){
+    return '<label><input type="radio" name="ink" value="' + k[1] + '"' + (k[1] === o.ink ? " checked" : "") + '>' +
+           '<i style="background:' + k[1] + '"></i>' + k[0] + '</label>';
+  }).join("");
+  function sizes(list, cur){
+    return list.map(function(v){ return '<option value="' + v + '"' + (v === cur ? " selected" : "") + '>' + v + ' mm</option>'; }).join("");
+  }
+  modal(
+    '<div class="card stampcard" role="dialog" aria-modal="true" aria-labelledby="sttl">' +
+      '<div class="ttl" id="sttl">日付印・名前印</div>' +
+      '<div class="seg" role="group" aria-label="種類">' +
+        '<button type="button" data-k="date">日付印</button><button type="button" data-k="name">名前印</button>' +
+      '</div>' +
+      '<div class="stampbody">' +
+        '<canvas class="stampprev" width="300" height="300" aria-label="見本"></canvas>' +
+        '<div class="stampform">' +
+          '<label class="f k-date">上の段（所属など）<input type="text" data-f="top" maxlength="12" placeholder="例：総務課"></label>' +
+          '<div class="two k-date">' +
+            '<label class="f">日付<input type="date" data-f="date"></label>' +
+            '<label class="f">書き方<select data-f="fmt">' +
+              '<option value="wareki">和暦（R8.9.23）</option><option value="seireki">西暦（2026.9.23）</option><option value="short">西暦・短く（\'26.9.23）</option>' +
+            '</select></label>' +
+          '</div>' +
+          '<label class="f"><span class="k-date">下の段（名前）</span><span class="k-name">名前</span><input type="text" data-f="name" maxlength="12" placeholder="例：山田"></label>' +
+          '<div class="note k-name">1〜3文字は縦1列、4文字は2列（右から）になります。</div>' +
+          '<div class="inks">色 ' + inks + '</div>' +
+          '<div class="two">' +
+            '<label class="f k-date">大きさ<select data-f="dateMm">' + sizes([15, 16.5, 18, 21], o.dateMm) + '</select></label>' +
+            '<label class="f k-name">大きさ<select data-f="nameMm">' + sizes([9, 10.5, 12, 13.5, 15], o.nameMm) + '</select></label>' +
+          '</div>' +
+          '<div class="note">置いた後も、ドラッグで動かしたり、右下の角で大きさを変えたりできます。</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="row">' +
+        '<button class="btn ghost" data-a="cancel">キャンセル</button>' +
+        '<button class="btn primary" data-a="ok">押す</button>' +
+      '</div>' +
+    '</div>',
+    function(back, finish){
+      var prev = back.querySelector(".stampprev");
+      back.querySelector('[data-f="top"]').value = o.top;
+      back.querySelector('[data-f="name"]').value = o.name;
+      back.querySelector('[data-f="date"]').value = o.date;
+      back.querySelector('[data-f="fmt"]').value = o.fmt;
+      function read(){
+        back.querySelectorAll("[data-f]").forEach(function(el){
+          var k = el.dataset.f;
+          o[k] = (k === "dateMm" || k === "nameMm") ? +el.value : el.value;
+        });
+        var ink = back.querySelector('input[name="ink"]:checked');
+        if (ink) o.ink = ink.value;
+      }
+      function draw(){
+        read();
+        back.querySelectorAll(".seg button").forEach(function(b){ b.setAttribute("aria-pressed", String(b.dataset.k === o.kind)); });
+        back.querySelectorAll(".k-date").forEach(function(el){ el.hidden = o.kind !== "date"; });
+        back.querySelectorAll(".k-name").forEach(function(el){ el.hidden = o.kind !== "name"; });
+        var g = prev.getContext("2d"), img = drawStamp(o, 240);
+        g.clearRect(0, 0, prev.width, prev.height);
+        g.drawImage(img, 30, 30);
+      }
+      async function go(){
+        read();
+        if (o.kind === "name" && !o.name.trim()){ toast("名前を入れてください"); back.querySelector('[data-f="name"]').focus(); return; }
+        try {
+          var save = {};
+          ["kind","top","name","fmt","ink","dateMm","nameMm"].forEach(function(k){ save[k] = o[k]; });
+          localStorage.setItem("pdfk.stamp", JSON.stringify(save));
+        } catch(e){}
+        finish(null);
+        var mm = o.kind === "date" ? o.dateMm : o.nameMm, pt = mm / 25.4 * 72;
+        // 印刷しても粗くならないよう、600dpi相当で作る
+        var px = Math.min(1200, Math.round(pt / 72 * 600));
+        var url = drawStamp(o, px).toDataURL("image/png");
+        var img = new Image(); img.src = url;
+        try { await img.decode(); } catch(e){}
+        placeImage(img, url, pt, (o.kind === "date" ? "日付印" : "名前印") + "を押しました。ドラッグで移動、右下の角で拡大縮小できます");
+      }
+      back.querySelectorAll(".seg button").forEach(function(b){
+        b.addEventListener("click", function(){ o.kind = b.dataset.k; draw(); });
+      });
+      back.addEventListener("input", draw);
+      back.addEventListener("change", draw);
+      back.addEventListener("click", function(e){
+        var a = e.target.closest("[data-a]");
+        if (!a) return;
+        if (a.dataset.a === "ok") go(); else finish(null);
+      });
+      back.addEventListener("keydown", function(e){
+        e.stopPropagation();
+        if (e.key === "Enter" && e.target.tagName !== "SELECT"){ e.preventDefault(); go(); }
+        if (e.key === "Escape"){ e.preventDefault(); finish(null); }
+      });
+      draw();
+      // 日本語フォントの読み込みが遅れて見本が崩れることがあるので、読み込み後にもう一度描く
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(draw);
+      var first = back.querySelector(o.kind === "date" ? '[data-f="top"]' : '[data-f="name"]');
+      if (first) first.focus();
+    }
+  );
+}
+
 /* --------------------------------------------------------------- sample doc */
 function sampleCanvas(pageNo){
   var W = 1240, H = 1754, s = W/595.28;
@@ -3572,6 +3816,7 @@ $("fileIn").addEventListener("change", function(e){
   e.target.value = "";
 });
 $("btnImage").addEventListener("click", function(){ $("imgIn").click(); });
+$("btnStamp").addEventListener("click", askStamp);
 $("imgIn").addEventListener("change", function(e){
   if (e.target.files[0]) addImage(e.target.files[0]);
   e.target.value = "";
@@ -3685,6 +3930,7 @@ $("btnMore").addEventListener("click", function(e){
     "-",
     {label:"幅に合わせる", icon:ICON.fit, disabled:!S.pages.length, run:fitWidth},
     {label:"画像・印鑑を置く", icon:ICON.img, disabled:!S.pages.length, run:function(){ $("imgIn").click(); }},
+    {label:"日付印・名前印を押す", icon:ICON.stamp, disabled:!S.pages.length, run:askStamp},
     {label:"印刷", icon:ICON.print, disabled:!S.pages.length, run:function(){ askPrint(); }},
     "-",
     {label:"使い方とショートカット", icon:ICON.help, run:showHelp}
