@@ -1418,12 +1418,17 @@ async function idbGet(key){
     }catch(e){ resolve(null); }
   });
 }
+/* 消し終わるまで待つ。待たずに画面を閉じると、消したはずの内容が残ることがある
+   （共用のパソコンで「消す」を押した直後に閉じる場合など） */
 async function idbClear(){
   var d = await db(); if (!d) return;
-  try{
-    var tx = d.transaction(STORE, "readwrite");
-    tx.objectStore(STORE).clear();
-  }catch(e){}
+  await new Promise(function(resolve){
+    try{
+      var tx = d.transaction(STORE, "readwrite");
+      tx.objectStore(STORE).clear();
+      tx.oncomplete = tx.onerror = tx.onabort = function(){ resolve(); };
+    }catch(e){ resolve(); }
+  });
 }
 
 var saveTimer = null, docsDirty = false;
