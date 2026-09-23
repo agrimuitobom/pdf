@@ -1,0 +1,12 @@
+{
+  "name": "pdf-koubou",
+  "private": true,
+  "description": "ブラウザだけで動くPDF編集ツール（テスト用の設定）",
+  "scripts": {
+    "test": "playwright test",
+    "build": "node build-single.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1"
+  }
+}

@@ -1,0 +1,50 @@
+# プッシュするたびに、実際のブラウザ（Chromium）でアプリを動かして確かめる。
+# 失敗したときは、Actions の実行結果から「playwright-report」をダウンロードすると
+# どの操作で何が違ったか（画面の記録つき）を見られる。
+name: テスト
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: 単体版（pdf-koubou-single.html）が index.html と揃っているか
+        run: |
+          node build-single.js
+          if ! git diff --quiet -- pdf-koubou-single.html; then
+            echo "::error file=pdf-koubou-single.html::index.html を直した後に node build-single.js を実行していません。実行してからコミットしてください。"
+            exit 1
+          fi
+
+      - name: ブラウザを用意
+        run: npx playwright install --with-deps chromium
+
+      - name: E2Eテスト
+        run: npx playwright test
+        env:
+          CI: "true"
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
