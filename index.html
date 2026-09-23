@@ -1557,13 +1557,28 @@ async function renderSheet(p){
   paintSheet(p);
 }
 
+/* pdf.js の PageViewport と同じ式で、PDF座標 -> 画面の変換行列を作る。
+   白紙ページや描画前のページには pdf.js の viewport が無いため、これを使う。
+   以前は回転を無視した行列にしていたため、回転した白紙ページに書いた内容が
+   ページの外の座標に保存され、書き出すと消えていた。 */
+function viewTransform(box, scale, rotation){
+  var cx = (box[2] + box[0]) / 2, cy = (box[3] + box[1]) / 2;
+  var r = ((rotation % 360) + 360) % 360, A, B, C, D;
+  if (r === 90)       { A = 0;  B = 1;  C = 1;  D = 0;  }
+  else if (r === 180) { A = -1; B = 0;  C = 0;  D = 1;  }
+  else if (r === 270) { A = 0;  B = -1; C = -1; D = 0;  }
+  else                { A = 1;  B = 0;  C = 0;  D = -1; }
+  var ox, oy;
+  if (A === 0){ ox = Math.abs(cy - box[1]) * scale; oy = Math.abs(cx - box[0]) * scale; }
+  else        { ox = Math.abs(cx - box[0]) * scale; oy = Math.abs(cy - box[1]) * scale; }
+  return [A * scale, B * scale, C * scale, D * scale,
+          ox - A * scale * cx - C * scale * cy,
+          oy - B * scale * cx - D * scale * cy];
+}
 function matrixFor(p){
-  if (p.vp){
-    var t = p.vp.transform;
-    return [t[0]*dpr, t[1]*dpr, t[2]*dpr, t[3]*dpr, t[4]*dpr, t[5]*dpr];
-  }
-  var s = S.zoom * dpr;
-  return [s, 0, 0, -s, -p.vx0*s, p.vy1*s];
+  var t = p.vp ? p.vp.transform
+               : viewTransform([p.vx0, p.vy0, p.vx0 + p.pw, p.vy1], S.zoom, totalRot(p));
+  return [t[0]*dpr, t[1]*dpr, t[2]*dpr, t[3]*dpr, t[4]*dpr, t[5]*dpr];
 }
 function toScreen(p, x, y){   // pdf pt -> css px inside sheet
   var m = matrixFor(p);
