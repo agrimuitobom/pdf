@@ -1655,6 +1655,20 @@ function toPdf(p, cx, cy){    // css px inside sheet -> pdf pt
 function flipped(ctx, x, yTop, fn){
   ctx.save(); ctx.translate(x, yTop); ctx.scale(1,-1); fn(); ctx.restore();
 }
+/* 回転したページでも文字がまっすぐ見えるよう、テキストは置いたときのページの向き（a.r）を覚える。
+   画面の右向き・下向きが、PDFの座標でどちらを向くかを返す [右x, 右y, 下x, 下y]。 */
+function orient(r){
+  switch (((r || 0) % 360 + 360) % 360){
+    case 90:  return [0, 1, 1, 0];
+    case 180: return [-1, 0, 0, 1];
+    case 270: return [0, -1, -1, 0];
+    default:  return [1, 0, 0, -1];
+  }
+}
+function uprightAt(ctx, x, y, r, fn){
+  var o = orient(r);
+  ctx.save(); ctx.transform(o[0], o[1], o[2], o[3], x, y); fn(); ctx.restore();
+}
 function wrapText(ctx, text, maxW){
   var out = [], paras = String(text).split("\n");
   for (var q=0;q<paras.length;q++){
@@ -1708,7 +1722,7 @@ function drawAnnot(ctx, a){
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(a.x + a.w2, a.y + a.h2); ctx.stroke();
   } else if (a.t === "text"){
     var m = textMetrics(ctx, a);
-    flipped(ctx, a.x, a.y, function(){
+    uprightAt(ctx, a.x, a.y, a.r, function(){
       ctx.font = a.size + "px " + annotFont(a);
       ctx.fillStyle = a.c; ctx.textBaseline = "alphabetic";
       for (var i=0;i<m.lines.length;i++) ctx.fillText(m.lines[i], 0, (i + 0.98) * m.lh);
@@ -1730,8 +1744,11 @@ function bbox(ctx, a){
     return {x:x0-pad, y:y0-pad, w:(x1-x0)+pad*2, h:(y1-y0)+pad*2};
   }
   if (a.t === "text"){
-    var h = a._h || (ctx ? textMetrics(ctx,a).h : a.size*1.5);
-    return {x:a.x, y:a.y - h, w:a.w, h:h};
+    var h = a._h || (ctx ? textMetrics(ctx,a).h : a.size*1.5), o = orient(a.r);
+    var xs = [a.x, a.x + o[0]*a.w, a.x + o[2]*h, a.x + o[0]*a.w + o[2]*h];
+    var ys = [a.y, a.y + o[1]*a.w, a.y + o[3]*h, a.y + o[1]*a.w + o[3]*h];
+    var tx = Math.min.apply(null, xs), ty = Math.min.apply(null, ys);
+    return {x:tx, y:ty, w:Math.max.apply(null, xs) - tx, h:Math.max.apply(null, ys) - ty};
   }
   if (a.t === "line"){
     return {x: Math.min(a.x, a.x+a.w2)-3, y: Math.min(a.y, a.y+a.h2)-3,
@@ -2172,14 +2189,18 @@ function bindSheet(p, canvas){
       drag = null; return;
     }
     if (S.tool === "select"){
-      var hit2 = hitTest(p, ctx, pt);
+      // 選択中の書き込みのつまみ（画面で見て枠の右下、枠の少し外）を先に調べる
+      var hit2 = null, near = false;
+      if (S.active && S.active.p === p){
+        var sa = screenBox(p, bbox(ctx, S.active.a));
+        if (Math.abs(cx - (sa.x1 + 4)) < 12 && Math.abs(cy - (sa.y1 + 4)) < 12){ hit2 = S.active.a; near = true; }
+      }
+      if (!hit2) hit2 = hitTest(p, ctx, pt);
       if (hit2){
-        var b = bbox(ctx, hit2);
-        var corner = toScreen(p, b.x+b.w, b.y+b.h);
-        var near = Math.abs(cx-corner[0]) < 12 && Math.abs(cy-corner[1]) < 12;
+        var b = bbox(ctx, hit2), sb = screenBox(p, b);
         S.active = {p:p, a:hit2};
         pushHistory();
-        drag = {mode: near ? "resize" : "move", a: hit2, start: pt, orig: JSON.parse(JSON.stringify(hit2)), box: b};
+        drag = {mode: near ? "resize" : "move", a: hit2, start: pt, orig: JSON.parse(JSON.stringify(hit2)), box: b, sbox: sb};
         sheetDragging = true;
       } else {
         S.active = null;
@@ -2193,8 +2214,11 @@ function bindSheet(p, canvas){
     if (S.tool === "text"){
       var hit3 = hitTest(p, ctx, pt, "text");
       if (hit3){ startText(p, hit3); return; }
-      var a = {id:++S.uid, t:"text", x:pt[0], y:pt[1], w:Math.max(60, Math.min(240, p.vx0 + p.pw - pt[0] - 12)),
-               text:"", size:S.size, c:S.color, font:S.font};
+      var r0 = totalRot(p), o0 = orient(r0);
+      var room = o0[0] > 0 ? p.vx0 + p.pw - pt[0] : o0[0] < 0 ? pt[0] - p.vx0
+               : o0[1] > 0 ? p.vy1 - pt[1] : pt[1] - p.vy0;
+      var a = {id:++S.uid, t:"text", x:pt[0], y:pt[1], w:Math.max(60, Math.min(240, room - 12)),
+               text:"", size:S.size, c:S.color, font:S.font, r:r0};
       startText(p, a, true);
       return;
     }
@@ -2242,18 +2266,35 @@ function bindSheet(p, canvas){
       if (a.p) a.p = o.p.map(function(q){ return [q[0]+dx, q[1]+dy]; });
       else { a.x = o.x + dx; a.y = o.y + dy; }
     } else if (drag.mode === "resize"){
-      var o2 = drag.orig;
-      if (a.t === "text"){ a.w = Math.max(28, pt[0] - a.x); }
-      else if (a.t === "line"){ a.w2 = pt[0]-a.x; a.h2 = pt[1]-a.y; }
-      else if (a.p){
-        var sx = Math.max(0.15, (pt[0]-drag.box.x) / Math.max(1,drag.box.w));
-        var sy = Math.max(0.15, (pt[1]-drag.box.y) / Math.max(1,drag.box.h));
-        a.p = o2.p.map(function(q){ return [drag.box.x + (q[0]-drag.box.x)*sx, drag.box.y + (q[1]-drag.box.y)*sy]; });
+      // 画面で見た左上を動かさず、右下のつまみに合わせて大きさを変える（ページの回転によらない）
+      var o2 = drag.orig, sb = drag.sbox, ob = drag.box;
+      var mx = e.clientX - r.left, my = e.clientY - r.top;
+      var sw = sb.x1 - sb.x0, sh = sb.y1 - sb.y0, min = 6 * S.zoom;
+      var nw = Math.max(min, mx - sb.x0), nh = Math.max(min, my - sb.y0);
+      if (a.t === "text"){
+        var ot = orient(a.r);
+        a.w = Math.max(28, (pt[0] - a.x) * ot[0] + (pt[1] - a.y) * ot[1]);
+      } else if (a.t === "line"){
+        // つまみに近いほうの端を指に合わせる
+        var e1 = toScreen(p, o2.x, o2.y), e2 = toScreen(p, o2.x + o2.w2, o2.y + o2.h2);
+        var d1 = Math.hypot(e1[0] - sb.x1, e1[1] - sb.y1), d2 = Math.hypot(e2[0] - sb.x1, e2[1] - sb.y1);
+        if (d2 <= d1){ a.w2 = pt[0] - o2.x; a.h2 = pt[1] - o2.y; }
+        else { var ex = o2.x + o2.w2, ey = o2.y + o2.h2; a.x = pt[0]; a.y = pt[1]; a.w2 = ex - pt[0]; a.h2 = ey - pt[1]; }
       } else {
-        a.w2 = Math.max(6, pt[0]-a.x);
-        if (a.t === "image" && e.shiftKey === false && o2.h2 && o2.w2)
-          a.h2 = a.w2 * (o2.h2/o2.w2);
-        else a.h2 = Math.max(6, pt[1]-a.y);
+        if (a.t === "image" && !e.shiftKey && sw > 0 && sh > 0){
+          var k = Math.max(nw / sw, nh / sh, 0.15);
+          nw = sw * k; nh = sh * k;
+        }
+        var nb = pdfBox(p, sb.x0, sb.y0, sb.x0 + nw, sb.y0 + nh);
+        if (a.p){
+          // 線の太さぶんの余白は広げずに、線の通り道だけを伸び縮みさせる
+          var pd = o2.w / 2 + 2;
+          var kx = Math.max(1, nb.w - pd*2) / Math.max(0.01, ob.w - pd*2);
+          var ky = Math.max(1, nb.h - pd*2) / Math.max(0.01, ob.h - pd*2);
+          a.p = o2.p.map(function(q){ return [nb.x + pd + (q[0] - ob.x - pd) * kx, nb.y + pd + (q[1] - ob.y - pd) * ky]; });
+        } else {
+          a.x = nb.x; a.y = nb.y; a.w2 = nb.w; a.h2 = nb.h;
+        }
       }
     }
     paintSheet(p);
@@ -2285,6 +2326,17 @@ function bindSheet(p, canvas){
   });
 }
 
+/* PDF座標の箱を、画面上の箱（左上と右下）にする */
+function screenBox(p, b){
+  var c1 = toScreen(p, b.x, b.y), c2 = toScreen(p, b.x + b.w, b.y + b.h);
+  return {x0:Math.min(c1[0], c2[0]), y0:Math.min(c1[1], c2[1]), x1:Math.max(c1[0], c2[0]), y1:Math.max(c1[1], c2[1])};
+}
+/* 画面上の箱を、PDF座標の箱にする */
+function pdfBox(p, x0, y0, x1, y1){
+  var c1 = toPdf(p, x0, y0), c2 = toPdf(p, x1, y1);
+  var x = Math.min(c1[0], c2[0]), y = Math.min(c1[1], c2[1]);
+  return {x:x, y:y, w:Math.abs(c2[0] - c1[0]), h:Math.abs(c2[1] - c1[1])};
+}
 function hitTest(p, ctx, pt, onlyType){
   for (var i = p.annots.length-1; i >= 0; i--){
     var a = p.annots[i];
@@ -2299,7 +2351,7 @@ function hitTest(p, ctx, pt, onlyType){
 /* ----------------------------------------------------------- text editing */
 function startText(p, a, isNew){
   S.editing = {p:p, a:a, isNew: !!isNew};
-  var z = S.zoom, rot = totalRot(p);
+  var z = S.zoom, rot = ((totalRot(p) - (a.r || 0)) % 360 + 360) % 360;
   var tl = toScreen(p, a.x, a.y);
   p.el.appendChild(ted);
   ted.hidden = false;
@@ -3293,25 +3345,57 @@ function addImage(file){
   fr.onload = function(){
     var img = new Image();
     img.onload = function(){
-      var p = selectedPages()[0] || S.pages[0];
-      if (!p){ toast("先にPDFを開いてください"); return; }
-      var id = "i" + (++S.uid);
-      S.images.set(id, {url: fr.result, el: img});
-      var maxW = Math.min(180, p.pw*0.4);
-      var w = maxW, h = maxW * (img.height/img.width);
-      pushHistory();
-      var a = {id:++S.uid, t:"image", img:id, x: p.vx0 + p.pw/2 - w/2, y: p.vy0 + p.ph/2 - h/2, w2:w, h2:h};
-      p.annots.push(a);
-      S.active = {p:p, a:a};
-      setTool("select");
-      if (!p.rendered) renderSheet(p); else paintSheet(p);
-      markThumb(p);
-      if (p.el) p.el.scrollIntoView({block:"center", behavior:"smooth"});
-      toast("画像を置きました。ドラッグで移動、右下の角で拡大縮小できます");
+      placeImage(img, fr.result, 180, "画像を置きました。ドラッグで移動、右下の角で拡大縮小できます");
     };
     img.src = fr.result;
   };
   fr.readAsDataURL(file);
+}
+/* いま見ているページの、見えている範囲の真ん中に画像を置く。
+   回転したページでもまっすぐ見えるよう、画像そのものをページの向きに合わせて回しておく。 */
+async function placeImage(img, url, maxW, msg){
+  var p = S.pages[currentPageIndex()];
+  if (!p){ toast("先にPDFを開いてください"); return null; }
+  var rot = totalRot(p), el = img, ew = img.naturalWidth, eh = img.naturalHeight;
+  if (rot){
+    var c = document.createElement("canvas"), turn = rot % 180 !== 0;
+    c.width = turn ? eh : ew; c.height = turn ? ew : eh;
+    var g = c.getContext("2d");
+    g.translate(c.width / 2, c.height / 2);
+    g.rotate(-rot * Math.PI / 180);
+    g.drawImage(img, -ew / 2, -eh / 2);
+    url = /^data:image\/jpe?g/i.test(url) ? c.toDataURL("image/jpeg", 0.92) : c.toDataURL("image/png");
+    el = new Image(); el.src = url;
+    try { await el.decode(); } catch(e){}
+    ew = c.width; eh = c.height;
+  }
+  var id = "i" + (++S.uid);
+  S.images.set(id, {url: url, el: el});
+  // 画面で見た幅を maxW（ページ幅の4割まで）にする。PDF座標の w2 が画面の縦になることもある
+  var sw = Math.min(maxW, (rot % 180 ? p.ph : p.pw) * 0.4), bw, bh;
+  if (rot % 180){ bh = sw; bw = bh * ew / eh; } else { bw = sw; bh = bw * eh / ew; }
+  var cxy = viewCenter(p);
+  pushHistory();
+  var a = {id:++S.uid, t:"image", img:id,
+           x: clamp(cxy[0] - bw/2, p.vx0, p.vx0 + p.pw - bw),
+           y: clamp(cxy[1] - bh/2, p.vy0, p.vy1 - bh), w2:bw, h2:bh};
+  p.annots.push(a);
+  S.active = {p:p, a:a};
+  setTool("select");
+  if (!p.rendered) renderSheet(p); else paintSheet(p);
+  markThumb(p);
+  if (msg) toast(msg);
+  return a;
+}
+/* ページの、画面に見えている部分の真ん中（PDF座標）。見えていなければページの真ん中 */
+function viewCenter(p){
+  var mid = [p.vx0 + p.pw / 2, (p.vy0 + p.vy1) / 2];
+  if (!p.el) return mid;
+  var r = p.el.querySelector(".anc").getBoundingClientRect(), sr = stage.getBoundingClientRect();
+  var x0 = Math.max(r.left, sr.left), x1 = Math.min(r.right, sr.right);
+  var y0 = Math.max(r.top, sr.top), y1 = Math.min(r.bottom, sr.bottom);
+  if (x1 - x0 < 40 || y1 - y0 < 40) return mid;
+  return toPdf(p, (x0 + x1) / 2 - r.left, (y0 + y1) / 2 - r.top);
 }
 
 /* --------------------------------------------------------------- sample doc */
