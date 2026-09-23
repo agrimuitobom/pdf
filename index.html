@@ -281,6 +281,18 @@ select,input[type=number]{
 @keyframes sp{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.spin{animation-duration:2.4s}}
 
+/* 印刷。画面の部品は刷らず、書き出しと同じ内容を画像にしたものだけを刷る */
+#printArea,#printNote{display:none}
+@media print{
+  html,body{height:auto!important;overflow:visible!important;background:#fff!important}
+  body>*:not(#printArea):not(#printNote){display:none!important}
+  body.printing #printArea{display:block}
+  body:not(.printing) #printNote{display:block;font:14px/1.7 sans-serif;color:#000;padding:20mm}
+  #printArea .pp{overflow:hidden;break-after:page;page-break-after:always;margin:0;padding:0}
+  #printArea .pp:last-child{break-after:auto;page-break-after:auto}
+  #printArea img{display:block;width:100%;height:100%}
+}
+
 .modal{
   position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;
   background:rgba(12,16,22,.55);backdrop-filter:blur(2px);
@@ -464,7 +476,7 @@ body.organizing .appbar #findBox{display:none}
   }
   .appbar .brand,
   .appbar #btnOpen,.appbar #btnAdd,.appbar #btnUndo,.appbar #btnRedo,
-  .appbar .field,.appbar .sep,.appbar #btnHelp{display:none}
+  .appbar .field,.appbar .sep,.appbar #btnHelp,.appbar #btnPrint{display:none}
   .appbar #findBox.open-narrow{
     display:flex;position:absolute;left:6px;right:6px;
     top:calc(100% - 2px);z-index:20;
@@ -572,6 +584,7 @@ body.organizing .appbar #findBox{display:none}
     <div class="spacer"></div>
     <button class="btn icon only-narrow" id="btnFindNarrow" aria-label="文字を探す"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="6"/><path d="M15.5 15.5L20 20"/></svg></button>
     <button class="btn icon" id="btnHelp" title="使い方とショートカット (?)" aria-label="使い方とショートカット">?</button>
+    <button class="btn icon" id="btnPrint" title="印刷 (Ctrl+P)" aria-label="印刷"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 9V4h10v5M7 17H4v-8h16v8h-3M7 14h10v6H7z"/></svg></button>
     <button class="btn primary" id="btnExport"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg><span class="lb">PDFを書き出す</span></button>
     <button class="btn icon only-narrow" id="btnMore" aria-label="その他のメニュー"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg></button>
   </div>
@@ -656,6 +669,8 @@ body.organizing .appbar #findBox{display:none}
 <input type="file" id="imgIn" accept="image/png,image/jpeg,image/webp" hidden>
 <input type="file" id="insIn" accept="application/pdf,.pdf" multiple hidden>
 <textarea id="ted" hidden spellcheck="false"></textarea>
+<div id="printArea" aria-hidden="true"></div>
+<div id="printNote">印刷するときは、PDF工房の「印刷」ボタン（または Ctrl＋P）を使ってください。</div>
 
 <script>
 (function(){
@@ -1030,6 +1045,7 @@ var ICON = {
   blank:'<path d="M5 4h9l5 5v11H5z"/><path d="M12 11v6M9 14h6"/>',
   del:  '<path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13"/>',
   out:  '<path d="M12 4v11M7 11l5 5 5-5M5 20h14"/>',
+  print:'<path d="M7 9V4h10v5M7 17H4v-8h16v8h-3M7 14h10v6H7z"/>',
   open: '<path d="M3 7h6l2 2h10v10H3z"/>',
   add:  '<path d="M12 5v14M5 12h14"/>',
   undo: '<path d="M4 9h10a5 5 0 0 1 0 10H8M4 9l4-4M4 9l4 4"/>',
@@ -1109,6 +1125,8 @@ function pageMenu(p, x, y){
     "-",
     {label:(n > 1 ? "この" + n + "ページだけ書き出す" : "このページだけ書き出す"),
      icon:ICON.out, run:function(){ askExport(true); }},
+    {label:(n > 1 ? "この" + n + "ページだけ印刷" : "このページだけ印刷"),
+     icon:ICON.print, run:function(){ printPdf(true); }},
     "-",
     {label:"削除", icon:ICON.del, danger:true, key:"Delete", run:deleteSel}
   ], head);
@@ -1131,6 +1149,7 @@ function showHelp(){
     ["Ctrl (⌘) + Z", "元に戻す"],
     ["Ctrl (⌘) + Shift + Z", "やり直す"],
     ["Ctrl (⌘) + S", "PDFを書き出す"],
+    ["Ctrl (⌘) + P", "印刷"],
     ["Ctrl (⌘) + ホイール", "拡大・縮小（ページ整理ではサムネイルの大きさ）"],
     ["Ctrl (⌘) + ＋ / − / 0", "拡大 / 縮小 / 幅に合わせる"],
     ["Delete", "選んだ書き込みを削除"],
@@ -1468,6 +1487,7 @@ function buildSheets(){
   syncFindEnabled();
   syncPageNo();
   $("btnExport").disabled = !S.pages.length;
+  $("btnPrint").disabled = !S.pages.length;
   S.pages.forEach(function(p, i){
     var d = dispSize(p, S.zoom);
     var el = document.createElement("div");
@@ -3040,6 +3060,127 @@ async function saveFile(name, blob){
   toast("「" + name + "」を書き出しました");
 }
 
+/* ---------------------------------------------------------------- 印刷
+   ブラウザの印刷にそのまま任せると、アプリの画面が刷られてしまう。
+   書き出しと同じPDFを作り、各ページを画像にして印刷専用の欄に並べてから刷る。
+   紙の大きさと向きはページごとに @page で指定する（PDFビューアの「実際のサイズ」と同じ）。 */
+var PRINT_DPI = 150;
+var printing = false;
+function askPrint(){
+  if (!S.pages.length){ toast("印刷するページがありません"); return; }
+  var n = S.sel.size, total = S.pages.length;
+  if (!(n > 0 && n < total)){ printPdf(false); return; }
+  modal(
+    '<div class="card" role="dialog" aria-modal="true" aria-labelledby="prttl">' +
+      '<div class="ttl" id="prttl">印刷</div>' +
+      '<div class="msg">印刷する範囲を選んでください。</div>' +
+      '<label class="pick"><input type="radio" name="rg" value="all" checked>すべてのページ（' + total + 'ページ）</label>' +
+      '<label class="pick"><input type="radio" name="rg" value="sel">選択した' + n + 'ページだけ</label>' +
+      '<div class="row">' +
+        '<button class="btn ghost" data-a="cancel">キャンセル</button>' +
+        '<button class="btn primary" data-a="ok">印刷する</button>' +
+      '</div>' +
+    '</div>',
+    function(back, finish){
+      function go(){
+        var sel = back.querySelector('input[value="sel"]').checked;
+        finish(null);
+        printPdf(sel);
+      }
+      back.addEventListener("click", function(e){
+        var a = e.target.closest("[data-a]");
+        if (!a) return;
+        if (a.dataset.a === "ok") go(); else finish(null);
+      });
+      back.addEventListener("keydown", function(e){
+        e.stopPropagation();
+        if (e.key === "Enter"){ e.preventDefault(); go(); }
+        if (e.key === "Escape"){ e.preventDefault(); finish(null); }
+      });
+      back.querySelector('button[data-a="ok"]').focus();
+    }
+  );
+}
+function clearPrint(){
+  var area = $("printArea");
+  area.querySelectorAll("img").forEach(function(im){ URL.revokeObjectURL(im.src); });
+  area.innerHTML = "";
+  var st = $("printStyle"); if (st) st.remove();
+  document.body.classList.remove("printing");
+}
+async function printPdf(onlySelected){
+  if (printing) return;
+  var list = onlySelected ? selectedPages() : S.pages;
+  if (!list.length){ toast("印刷するページがありません"); return; }
+  printing = true;
+  clearPrint();
+  var doc = null;
+  busy("印刷の準備をしています…");
+  try{
+    var n = list.length;
+    var built = await buildPdf(list, function(i){ busy("印刷の準備をしています… " + (i+1) + " / " + (n*2)); });
+    doc = await pdfjsLib.getDocument({data: built.bytes, isEvalSupported:false}).promise;
+    var area = $("printArea"), sizes = {}, css = "", canvas = document.createElement("canvas");
+    // 巨大なページで端末のメモリが尽きないよう、1ページの画素数に上限を設ける
+    var MAXPX = 16e6;
+    for (var i = 0; i < doc.numPages; i++){
+      busy("印刷の準備をしています… " + (n + i + 1) + " / " + (n*2));
+      var pg = await doc.getPage(i + 1);
+      var vp1 = pg.getViewport({scale:1});
+      var sc = PRINT_DPI / 72;
+      if (vp1.width * vp1.height * sc * sc > MAXPX) sc = Math.sqrt(MAXPX / (vp1.width * vp1.height));
+      var vp = pg.getViewport({scale:sc});
+      canvas.width = Math.floor(vp.width); canvas.height = Math.floor(vp.height);
+      var cx = canvas.getContext("2d");
+      cx.fillStyle = "#fff"; cx.fillRect(0, 0, canvas.width, canvas.height);
+      await pg.render({canvasContext:cx, viewport:vp, intent:"print",
+                       annotationMode:pdfjsLib.AnnotationMode.ENABLE_STORAGE}).promise;
+      pg.cleanup();
+      var blob = await new Promise(function(res){ canvas.toBlob(res, "image/jpeg", 0.92); });
+      var w = Math.round(vp1.width * 100) / 100, h = Math.round(vp1.height * 100) / 100;
+      var key = "pk" + String(w).replace(".", "_") + "x" + String(h).replace(".", "_");
+      if (!sizes[key]){
+        sizes[key] = 1;
+        css += "@page " + key + "{size:" + w + "pt " + h + "pt;margin:0}\n";
+      }
+      var box = document.createElement("div");
+      box.className = "pp";
+      box.style.cssText = "page:" + key + ";width:" + w + "pt;height:" + h + "pt";
+      var im = new Image();
+      im.alt = "";
+      im.src = URL.createObjectURL(blob);
+      box.appendChild(im); area.appendChild(box);
+      try { await im.decode(); } catch(e){}
+    }
+    canvas.width = canvas.height = 0;
+    var first = area.querySelector(".pp");
+    // 名前の無い @page（最初のページの大きさ）も決めておく。ページ名に対応しないブラウザ向け
+    css += "@page{size:" + first.style.width + " " + first.style.height + ";margin:0}\n";
+    var st = document.createElement("style");
+    st.id = "printStyle"; st.textContent = "@media print{" + css + "}";
+    document.head.appendChild(st);
+    busy(null);
+    document.body.classList.add("printing");
+    var done = false;
+    var after = function(){
+      if (done) return;
+      done = true;
+      window.removeEventListener("afterprint", after);
+      clearPrint();
+    };
+    window.addEventListener("afterprint", after);
+    window.print();
+    // print() が待たずに戻る端末（スマホなど）もあるため、片付けは afterprint に任せる。
+    // afterprint が来ない端末でも、次に印刷するときに clearPrint() で片付く。
+  }catch(err){
+    console.error(err); busy(null); clearPrint();
+    toast("印刷の準備に失敗しました: " + (err && err.message ? err.message : err));
+  }finally{
+    if (doc) doc.destroy();
+    printing = false;
+  }
+}
+
 /* ------------------------------------------------------------------- UI */
 var TOOLS = [
   {k:"select", n:"選択", key:"V", d:'<path d="M6 3l13 7-5.5 1.8L11 18z"/>'},
@@ -3374,6 +3515,7 @@ $("btnMore").addEventListener("click", function(e){
     "-",
     {label:"幅に合わせる", icon:ICON.fit, disabled:!S.pages.length, run:fitWidth},
     {label:"画像・印鑑を置く", icon:ICON.img, disabled:!S.pages.length, run:function(){ $("imgIn").click(); }},
+    {label:"印刷", icon:ICON.print, disabled:!S.pages.length, run:function(){ askPrint(); }},
     "-",
     {label:"使い方とショートカット", icon:ICON.help, run:showHelp}
   ]);
@@ -3558,6 +3700,7 @@ thumbsEl.addEventListener("keydown", function(e){
 
 /* クリックイベントが第1引数に入ると「選択ページのみ」が既定になってしまう */
 $("btnExport").addEventListener("click", function(){ askExport(false); });
+$("btnPrint").addEventListener("click", function(){ askPrint(); });
 $("btnUndo").addEventListener("click", undo);
 $("btnRedo").addEventListener("click", redo);
 $("zIn").addEventListener("click", function(){ setZoom(S.zoom*1.2); });
@@ -3608,6 +3751,13 @@ stage.addEventListener("drop", function(e){
   if (e.dataTransfer.files && e.dataTransfer.files.length) handleFiles(e.dataTransfer.files, !S.pages.length);
 });
 
+// Ctrl+P は入力欄の中でも横取りする（ブラウザに任せるとアプリの画面が刷られる）。
+// 入力欄は keydown を止めることがあるので、捕捉段階で受ける。
+window.addEventListener("keydown", function(e){
+  if (!((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "p")) return;
+  e.preventDefault(); e.stopPropagation();
+  if (!document.querySelector(".modal") && !$("busy")) askPrint();
+}, true);
 document.addEventListener("keydown", function(e){
   if (S.editing) return;
   var t = e.target;
