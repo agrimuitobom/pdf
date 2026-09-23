@@ -171,6 +171,7 @@ select,input[type=number]{
 
 .thumb{position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;user-select:none}
 .thumb .shot{
+  width:110px;box-sizing:border-box;
   background:var(--surface);border:1px solid var(--line);border-radius:3px;
   box-shadow:var(--shadow-sm);overflow:hidden;display:block;
 }
@@ -521,6 +522,7 @@ body.organizing .appbar #findBox{display:none}
     gap:14px;padding:14px 12px 28px;align-content:start;
   }
   .thumb{width:auto}
+  .thumb .shot{width:100%}
   .thumb .shot.empty{width:100%;height:150px}
   .pageops{gap:0;padding:4px 6px}
   .pageops .btn{flex:1 1 0;flex-direction:column;gap:3px;padding:7px 0;font-size:10px}
@@ -1361,8 +1363,9 @@ async function openPdfData(bytes, name){
 /* どのページからも、元に戻す履歴からも参照されなくなったPDFを捨てる。
    差し替えで開いたときに古いPDFが残り続けるのを防ぐ。 */
 function pruneDocs(){
-  var used = new Set();
-  S.pages.forEach(function(p){ if (p.docId) used.add(p.docId); });
+  var used = new Set(), live = new Set();
+  S.pages.forEach(function(p){ if (p.docId) used.add(p.docId); live.add(p.uid); });
+  Array.from(markedThumbs.keys()).forEach(function(u){ if (!live.has(u)) markedThumbs.delete(u); });
   var hist = S.history.concat(S.future).join("");
   Array.from(S.docs.keys()).forEach(function(id){
     if (used.has(id) || hist.indexOf('"docId":"' + id + '"') >= 0) return;
@@ -1373,6 +1376,9 @@ function pruneDocs(){
     });
     Array.from(thumbCache.keys()).forEach(function(k){
       if (k.indexOf(id + ":") === 0) thumbCache.delete(k);
+    });
+    Array.from(thumbUrls.keys()).forEach(function(k){
+      if (k.indexOf(id + ":") === 0) thumbUrls.delete(k);
     });
     try { rec.pdf.destroy(); } catch(e){}
   });
@@ -2254,29 +2260,73 @@ ted.addEventListener("keydown", function(e){
 });
 
 /* --------------------------------------------------------------- thumbnails */
-var thumbCache = new Map();
+/* サムネイル。元ページの描画は重いので元ページ単位で使い回し、書き込みの
+   あるページだけ、その上に書き込みを重ねた画像を別に作る。
+   ページ整理で大きく表示してもぼやけにくいよう、一覧の表示幅の2倍で描く。 */
+var THUMB_W = 220;
+var thumbCache = new Map();       // 元ページの描画（canvas）  キー: 元ページ+回転
+var thumbUrls = new Map();        // その画像URL
+var markedThumbs = new Map();     // 書き込みを重ねた画像  uid -> {sig, url}
 function thumbKey(p){ return p.docId + ":" + p.srcIndex + ":" + totalRot(p) + (p.blank ? ":b" : ""); }
-async function thumbFor(p){
+function baseThumb(p){
   var key = thumbKey(p);
   if (thumbCache.has(key)) return thumbCache.get(key);
   var pr = (async function(){
-    var W = 110;
+    var s = THUMB_W / p.pw;
     var c = document.createElement("canvas");
     if (p.blank){
-      var d = dispSize(p, W/p.pw);
+      var d = dispSize(p, s);
       c.width = Math.round(d.w); c.height = Math.round(d.h);
-      var g0 = c.getContext("2d"); g0.fillStyle="#fff"; g0.fillRect(0,0,c.width,c.height);
-      return c.toDataURL("image/png");
+      var g0 = c.getContext("2d"); g0.fillStyle = "#fff"; g0.fillRect(0, 0, c.width, c.height);
+      return c;
     }
     var page = await getPdfPage(p);
-    var vp = page.getViewport({scale: W / p.pw, rotation: totalRot(p)});
+    var vp = page.getViewport({scale: s, rotation: totalRot(p)});
     c.width = Math.round(vp.width); c.height = Math.round(vp.height);
-    var g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0,0,c.width,c.height);
+    var g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height);
     await page.render({canvasContext: g, viewport: vp}).promise;
-    return c.toDataURL("image/jpeg", 0.72);
+    return c;
   })();
   thumbCache.set(key, pr);
   return pr;
+}
+/* 書き込みの中身が変わったかを見分ける。描画のたびに付く _h（文字の高さの
+   覚え書き）は内容ではないので外す。 */
+function annotSig(p){
+  return totalRot(p) + ":" + JSON.stringify(p.annots, function(k, v){ return k === "_h" ? undefined : v; });
+}
+async function thumbFor(p){
+  var base = await baseThumb(p);
+  if (!p.annots.length){
+    var k = thumbKey(p);
+    if (!thumbUrls.has(k)) thumbUrls.set(k, base.toDataURL(p.blank ? "image/png" : "image/jpeg", 0.8));
+    return thumbUrls.get(k);
+  }
+  var sig = annotSig(p), hit = markedThumbs.get(p.uid);
+  if (hit && hit.sig === sig) return hit.url;
+  var c = document.createElement("canvas");
+  c.width = base.width; c.height = base.height;
+  var g = c.getContext("2d");
+  g.drawImage(base, 0, 0);
+  var t = viewTransform([p.vx0, p.vy0, p.vx0 + p.pw, p.vy1], THUMB_W / p.pw, totalRot(p));
+  g.setTransform(t[0], t[1], t[2], t[3], t[4], t[5]);
+  p.annots.forEach(function(a){ drawAnnot(g, a); });
+  var url = c.toDataURL("image/jpeg", 0.8);
+  markedThumbs.set(p.uid, {sig: sig, url: url});
+  return url;
+}
+/* 書き込みを変えたページのサムネイルを描き直す（一覧とページ整理の両方） */
+var thumbTimers = new Map();
+function refreshThumb(p){
+  clearTimeout(thumbTimers.get(p.uid));
+  thumbTimers.set(p.uid, setTimeout(function(){
+    thumbTimers.delete(p.uid);
+    thumbFor(p).then(function(url){
+      var imgs = [thumbsEl.querySelector('.thumb[data-uid="' + p.uid + '"] .shot img'),
+                  $("orgGrid").querySelector('.ocard[data-uid="' + p.uid + '"] .shot img')];
+      imgs.forEach(function(img){ if (img && img.src !== url) img.src = url; });
+    }).catch(function(){});
+  }, 150));
 }
 function buildThumbs(){
   thumbsEl.textContent = "";
@@ -2373,7 +2423,7 @@ thumbsEl.addEventListener("touchmove", function(e){
 }, {passive:false});
 
 function markThumb(p){
-  var key = thumbKey(p);
+  refreshThumb(p);
   var el = thumbsEl.querySelector('.thumb[data-uid="'+p.uid+'"]');
   if (!el) return;
   var has = el.querySelector(".mark");
