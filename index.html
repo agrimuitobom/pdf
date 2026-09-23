@@ -32,13 +32,13 @@
   --line-soft:#e3e8f0;
   --ink:#15202b;
   --ink-2:#5c6878;
-  --ink-3:#8b96a5;
+  --ink-3:#66717f;
   --accent:#2f5d8f;
   --accent-ink:#ffffff;
   --accent-soft:#e2ecf7;
   --danger:#b1432c;
   --danger-soft:#f7e6e2;
-  --deck:#7b8492;
+  --deck:#626b78;
   --shadow-sm:0 1px 2px rgba(21,32,43,.10);
   --shadow-md:0 2px 6px rgba(21,32,43,.10),0 12px 28px rgba(21,32,43,.10);
   --r:7px;
@@ -53,7 +53,7 @@
     --line-soft:#2a3441;
     --ink:#e7edf5;
     --ink-2:#9aa6b6;
-    --ink-3:#74808f;
+    --ink-3:#8a95a3;
     --accent:#79a9db;
     --accent-ink:#0f1620;
     --accent-soft:#20303f;
@@ -72,7 +72,7 @@
   --line-soft:#2a3441;
   --ink:#e7edf5;
   --ink-2:#9aa6b6;
-  --ink-3:#74808f;
+  --ink-3:#8a95a3;
   --accent:#79a9db;
   --accent-ink:#0f1620;
   --accent-soft:#20303f;
@@ -280,9 +280,9 @@ select,input[type=number]{
 }
 .stage.dragging .drop{border-color:#fff;background:rgba(255,255,255,.07)}
 #btnSample{
-  background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.55);color:#fff;
+  background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.6);color:#fff;font-weight:600;
 }
-#btnSample:hover{background:rgba(255,255,255,.24);border-color:#fff}
+#btnSample:hover{background:rgba(255,255,255,.12);border-color:#fff}
 
 /* inline text editor */
 #ted{
@@ -373,7 +373,7 @@ select,input[type=number]{
 }
 
 .sheetguide{
-  color:#c9d1db;font-size:11.5px;text-align:center;padding:0 16px 6px;
+  color:#e9edf3;font-size:11.5px;text-align:center;padding:0 16px 6px;
 }
 
 /* ---------- ページ整理モード ---------- */
@@ -707,7 +707,7 @@ body.organizing .appbar #findBox{display:none}
       <div class="empty-stage" id="emptyStage" hidden>
         <div class="drop">
           <div style="font-size:15px;font-weight:700;margin-bottom:6px">PDFをここにドロップ</div>
-          <div style="font-size:12px;opacity:.85">または「開く」から選んでください。ファイルはこの端末の中だけで処理され、どこにも送信されません。</div>
+          <div style="font-size:12px">または「開く」から選んでください。ファイルはこの端末の中だけで処理され、どこにも送信されません。</div>
           <div style="margin-top:14px"><button class="btn" id="btnSample" type="button">サンプルで試す</button></div>
         </div>
       </div>
