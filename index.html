@@ -2613,6 +2613,72 @@ async function copyOutlines(out, list, flatAt){
   return total;
 }
 
+/* 入力フォームを引き継ぐ。copyPages はページ上の入力欄（ウィジェット）は
+   写すが、文書全体の /AcroForm（どれが入力欄かの一覧）は写さない。そのまま
+   では入力欄として認識されず、受け取った人が書き込めなくなっていた。
+   書き出したページ上のウィジェットから親をたどって、入力欄の一覧を作り直す。 */
+function rebuildAcroForm(out, list, srcCache){
+  var L = PDFLib, N = L.PDFName, ctx = out.context;
+  var roots = [], seen = new Set();
+  out.getPages().forEach(function(pg){
+    var annots = pg.node.lookup(N.of("Annots"));
+    if (!(annots instanceof L.PDFArray)) return;
+    for (var i=0;i<annots.size();i++){
+      var ref = annots.get(i);
+      if (!(ref instanceof L.PDFRef)) continue;
+      var a = ctx.lookup(ref);
+      if (!(a instanceof L.PDFDict) || a.get(N.of("Subtype")) !== N.of("Widget")) continue;
+      var r = ref, o = a, guard = 0;
+      while (o.get(N.of("Parent")) instanceof L.PDFRef && guard++ < 32){
+        r = o.get(N.of("Parent")); o = ctx.lookup(r);
+      }
+      if (!seen.has(r.toString())){ seen.add(r.toString()); roots.push({ref:r, dict:o}); }
+    }
+  });
+  if (!roots.length) return 0;
+
+  /* 同じ名前の入力欄が別々にあると、片方に書くともう片方も変わったり、
+     片方しか認識されなかったりする。ページの複製や同じ様式の結合で起きる
+     ので、後に出てくるほうに番号を付けて独立させる。 */
+  var used = new Set();
+  roots.forEach(function(rt){
+    var t = rt.dict.get(N.of("T"));
+    var name = (t && t.decodeText) ? t.decodeText() : "";
+    if (!name) return;
+    if (!used.has(name)){ used.add(name); return; }
+    var n = 2;
+    while (used.has(name + "_" + n)) n++;
+    used.add(name + "_" + n);
+    rt.dict.set(N.of("T"), L.PDFHexString.fromText(name + "_" + n));
+  });
+
+  var af = ctx.obj({Fields: roots.map(function(rt){ return rt.ref; })});
+  /* 入力欄の既定の書体や大きさ（/DA /DR）は元の様式から写す。これが無いと、
+     入力し直したときに文字が出ない閲覧ソフトがある。 */
+  var docs = [];
+  list.forEach(function(p){ if (!p.blank && docs.indexOf(p.docId) < 0) docs.push(p.docId); });
+  for (var i=0;i<docs.length;i++){
+    var src = srcCache.get(docs[i]);
+    var saf = src && src.catalog.lookup(N.of("AcroForm"));
+    if (!(saf instanceof L.PDFDict)) continue;
+    var copier = L.PDFObjectCopier.for(src.context, ctx);
+    ["DA", "DR", "Q", "NeedAppearances"].forEach(function(key){
+      var v = saf.get(N.of(key));
+      if (v !== undefined) af.set(N.of(key), copier.copy(v));
+    });
+    break;
+  }
+  out.catalog.set(N.of("AcroForm"), ctx.register(af));
+  return roots.length;
+}
+
+function srcHasAnnots(src, index){
+  try {
+    var a = src.getPage(index).node.lookup(PDFLib.PDFName.of("Annots"));
+    return !!(a && a.size && a.size() > 0);
+  } catch(e){ return true; }   // 分からなければ安全側（個別にコピー）
+}
+
 async function buildPdf(list, onProgress){
   var PDFDocument = PDFLib.PDFDocument, degrees = PDFLib.degrees;
   var out = await PDFDocument.create();
@@ -2624,7 +2690,7 @@ async function buildPdf(list, onProgress){
      ページのコピーは文書ごとに1回にまとめる。1ページずつ写すと、複数の
      ページが共有している画像やフォントがページ数だけ複製され、スキャンした
      PDFで出力が何十倍にも膨らむ。 */
-  var plan = [], need = new Map();
+  var plan = [], need = new Map(), firstSeen = new Set();
   for (var i=0;i<list.length;i++){
     var p = list[i];
     var src = p.blank ? null : await loadSource(srcCache, p.docId);
@@ -2633,7 +2699,14 @@ async function buildPdf(list, onProgress){
       if (!src) locked++; else redacted++;
     } else if (p.blank){
       plan.push({p:p, how:"blank"});
+    } else if (firstSeen.has(p.docId + ":" + p.srcIndex) && srcHasAnnots(src, p.srcIndex)){
+      /* 同じ元ページの2枚目以降（複製）は、まとめてコピーすると1枚目と
+         入力欄やリンクの実体を共有してしまう。1つの注釈が2ページに属する
+         不正な形になるので、注釈のあるページだけは個別にコピーして独立させる。
+         注釈の無いページはまとめてコピーしても問題なく、画像も共有できる。 */
+      plan.push({p:p, how:"own", docId:p.docId});
     } else {
+      firstSeen.add(p.docId + ":" + p.srcIndex);
       if (!need.has(p.docId)) need.set(p.docId, []);
       var q = need.get(p.docId);
       plan.push({p:p, how:"copy", docId:p.docId, slot:q.length});
@@ -2659,7 +2732,9 @@ async function buildPdf(list, onProgress){
       target = out.addPage([pg.pw, pg.ph]);
       if (pg.rot) target.setRotation(degrees(((pg.rot % 360) + 360) % 360));
     } else {
-      target = copies.get(it.docId)[it.slot];
+      target = (it.how === "own")
+        ? (await out.copyPages(srcCache.get(it.docId), [pg.srcIndex]))[0]
+        : copies.get(it.docId)[it.slot];
       out.addPage(target);
       var cur = 0;
       try { cur = target.getRotation().angle || 0; } catch(e){ cur = 0; }
@@ -2671,6 +2746,7 @@ async function buildPdf(list, onProgress){
   var flatAt = new Set();
   plan.forEach(function(it, i){ if (it.how === "flat") flatAt.add(i); });
   try { await copyOutlines(out, list, flatAt); } catch(e){ console.warn("しおりを引き継げませんでした", e); }
+  try { rebuildAcroForm(out, list, srcCache); } catch(e){ console.warn("入力フォームを引き継げませんでした", e); }
   out.setProducer("PDF工房");
   return {bytes: await out.save({useObjectStreams:false}), redacted: redacted, locked: locked};
 }
