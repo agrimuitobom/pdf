@@ -275,7 +275,16 @@ select,input[type=number]{
 }
 
 .stage{flex:1 1 auto;overflow:auto;background:var(--deck);position:relative;min-width:0}
-.sheetwrap{display:flex;flex-direction:column;align-items:center;gap:16px;padding:18px 16px 60px}
+/* 書類は中央に置くが、画面より広く拡大したときは左端から並べる。
+   align-items:center のままだと、はみ出した左側がスクロールで届かない
+   領域に出てしまい、ページの左端が見えなくなっていた。
+   入れ物を一番広いページに合わせて広げ、ページは左右の auto 余白で
+   中央に置く（auto 余白は負にならないので、はみ出しは右へ逃げる）。 */
+.sheetwrap{
+  display:flex;flex-direction:column;align-items:flex-start;gap:16px;padding:18px 16px 60px;
+  width:max-content;min-width:100%;box-sizing:border-box;
+}
+.sheetwrap>.sheet{margin-left:auto;margin-right:auto}
 .sheet{position:relative;background:#fff;box-shadow:var(--shadow-md);flex:none}
 .sheet canvas{display:block;position:absolute;inset:0;width:100%;height:100%}
 .sheet .pdfc{z-index:1}
@@ -1185,6 +1194,8 @@ function showHelp(){
     ["Ctrl (⌘) + Z", "元に戻す"],
     ["Ctrl (⌘) + Shift + Z", "やり直す"],
     ["Ctrl (⌘) + S", "PDFを書き出す"],
+    ["Ctrl (⌘) + ホイール", "拡大・縮小（ページ整理ではサムネイルの大きさ）"],
+    ["Ctrl (⌘) + ＋ / − / 0", "拡大 / 縮小 / 幅に合わせる"],
     ["Delete", "選んだ書き込みを削除"],
     ["F", "文字を探す"],
     ["Enter / Shift + Enter", "次の一致 / 前の一致（検索欄で）"],
@@ -1988,6 +1999,44 @@ function pinchEnd(){
   stage.scrollLeft += (sr.left + g.anchor.x * k) - want.x;
   stage.scrollTop  += (sr.top  + g.anchor.y * k) - want.y;
 }
+
+/* Ctrl（Mac は ⌘ も）＋ホイールで拡大縮小。トラックパッドのピンチも
+   ブラウザからは Ctrl 付きのホイールとして届く。止めないとブラウザが
+   ボタンまで含めた画面全体を拡大してしまう。
+   2本指ピンチと同じく、回している間は見た目だけ動かし、止まったら
+   実際の倍率で描き直す。カーソルの下の点がずれないようにする。 */
+var wheelZ = null, wheelTimer = null;
+function wheelZoomEnd(){
+  if (!wheelZ) return;
+  var g = wheelZ; wheelZ = null;
+  pinch = {anchor: g.anchor, zoom0: g.zoom0, scale: g.scale, c0: g.c, lastC: g.c};
+  pinchEnd();
+}
+stage.addEventListener("wheel", function(e){
+  if (!(e.ctrlKey || e.metaKey) || !S.pages.length) return;
+  e.preventDefault();
+  if (pinch) return;                              // 2本指の操作中は任せる
+  if (!wheelZ){
+    var sr = sheets.getBoundingClientRect();
+    wheelZ = {anchor: {x: e.clientX - sr.left, y: e.clientY - sr.top},
+              c: {x: e.clientX, y: e.clientY}, zoom0: S.zoom, scale: 1, tx: 0, ty: 0};
+    sheets.style.transformOrigin = "0 0";
+    sheets.style.willChange = "transform";
+  }
+  // マウスのホイールは1目盛り100前後、トラックパッドは細かい値で届く
+  var step = (e.deltaMode === 1) ? e.deltaY * 33 : e.deltaY;
+  wheelZ.scale = clamp(wheelZ.scale * Math.exp(-step * 0.0015),
+                       0.25 / wheelZ.zoom0, 4 / wheelZ.zoom0);
+  wheelZ.c = {x: e.clientX, y: e.clientY};
+  var sr2 = sheets.getBoundingClientRect();
+  var baseLeft = sr2.left - wheelZ.tx, baseTop = sr2.top - wheelZ.ty;
+  wheelZ.tx = wheelZ.c.x - baseLeft - wheelZ.scale * wheelZ.anchor.x;
+  wheelZ.ty = wheelZ.c.y - baseTop  - wheelZ.scale * wheelZ.anchor.y;
+  sheets.style.transform = "translate(" + wheelZ.tx + "px," + wheelZ.ty + "px) scale(" + wheelZ.scale + ")";
+  $("zLabel").textContent = Math.round(wheelZ.zoom0 * wheelZ.scale * 100) + "%";
+  clearTimeout(wheelTimer);
+  wheelTimer = setTimeout(wheelZoomEnd, 180);
+}, {passive: false});
 
 stage.addEventListener("pointerdown", function(e){
   if (e.pointerType !== "touch") return;
@@ -3434,6 +3483,14 @@ $("oIns").addEventListener("click", function(e){
   var at = sel.length ? S.pages.indexOf(sel[sel.length - 1]) + 1 : S.pages.length;
   insertMenu(at, e.currentTarget.getBoundingClientRect());
 });
+$("orgView").addEventListener("wheel", function(e){
+  if (!(e.ctrlKey || e.metaKey)) return;
+  e.preventDefault();
+  var sl = $("orgSize");
+  var v = clamp(orgSize * Math.exp(-(e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY) * 0.0022), +sl.min, +sl.max);
+  sl.value = String(Math.round(v / 10) * 10);
+  sl.dispatchEvent(new Event("input"));
+}, {passive: false});
 $("orgSize").addEventListener("input", function(e){
   orgSize = +e.target.value;
   try { localStorage.setItem("pdfk.orgsize", String(orgSize)); } catch(err){}
@@ -3626,6 +3683,9 @@ document.addEventListener("keydown", function(e){
   if (mod && e.key.toLowerCase() === "z"){ e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
   if (mod && e.key.toLowerCase() === "y"){ e.preventDefault(); redo(); return; }
   if (mod && e.key.toLowerCase() === "s"){ e.preventDefault(); askExport(); return; }
+  if (mod && (e.key === "+" || e.key === "=" || e.key === ";")){ e.preventDefault(); if (!inOrganize() && S.pages.length) setZoom(S.zoom * 1.2); return; }
+  if (mod && (e.key === "-" || e.key === "_")){ e.preventDefault(); if (!inOrganize() && S.pages.length) setZoom(S.zoom / 1.2); return; }
+  if (mod && e.key === "0"){ e.preventDefault(); if (!inOrganize()) fitWidth(); return; }
   if (e.key === "Delete" || e.key === "Backspace"){
     if (S.active){
       e.preventDefault(); pushHistory();
