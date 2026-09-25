@@ -2799,7 +2799,8 @@ async function flattenPage(out, p){
   p.annots.forEach(function(a){ drawAnnot(ctx, a); });
   ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-  var blob = await new Promise(function(r){ c.toBlob(r, "image/jpeg", 0.92); });
+  // 0.85 は、文字のにじみが目立たずファイルが小さい境目（0.92 より約2割小さい）
+  var blob = await new Promise(function(r){ c.toBlob(r, "image/jpeg", 0.85); });
   var img = await out.embedJpg(new Uint8Array(await blob.arrayBuffer()));
   var target = out.addPage([d.w, d.h]);         // 回転は画像に焼き込み済み
   target.drawImage(img, {x: 0, y: 0, width: d.w, height: d.h});
@@ -3042,7 +3043,8 @@ async function buildPdf(list, onProgress){
   try { await copyOutlines(out, list, flatAt); } catch(e){ console.warn("しおりを引き継げませんでした", e); }
   try { rebuildAcroForm(out, list, srcCache); } catch(e){ console.warn("入力フォームを引き継げませんでした", e); }
   out.setProducer("PDF工房");
-  return {bytes: await out.save({useObjectStreams:false}), redacted: redacted, locked: locked};
+  // オブジェクトストリーム（PDF 1.5 以降の標準）で、ページ数の多い文書を小さくする
+  return {bytes: await out.save({useObjectStreams:true}), redacted: redacted, locked: locked};
 }
 /* 注釈はできるかぎりベクターとして書き出す。ページ全体を画像化しないので、
    元の文字は選択・検索できるまま、書き込みも拡大してぼやけない。 */
@@ -3444,12 +3446,39 @@ function addImage(file){
   var fr = new FileReader();
   fr.onload = function(){
     var img = new Image();
-    img.onload = function(){
-      placeImage(img, fr.result, 180, "画像を置きました。ドラッグで移動、右下の角で拡大縮小できます");
+    img.onload = async function(){
+      var sm = await shrinkImage(img, fr.result);
+      placeImage(sm.img, sm.url, 180, "画像を置きました。ドラッグで移動、右下の角で拡大縮小できます");
     };
     img.src = fr.result;
   };
   fr.readAsDataURL(file);
+}
+/* スマホで撮った写真（印鑑を撮ったものなど）は1枚で数MBあり、そのまま埋め込むと
+   PDFが大きくなりすぎる。長い辺を IMG_MAX_PX までに縮め、透明な部分のない画像は
+   JPEG にする。IMG_MAX_PX は A4 の幅いっぱいに広げても約240dpi になる大きさ。 */
+var IMG_MAX_PX = 2000;
+async function shrinkImage(img, url){
+  var w = img.naturalWidth, h = img.naturalHeight;
+  var tooBig = Math.max(w, h) > IMG_MAX_PX;
+  var heavy = url.length > 700 * 1024 * 4 / 3;      // data URL で約700KBを超える
+  if (!tooBig && !heavy) return {img: img, url: url};
+  var k = Math.min(1, IMG_MAX_PX / Math.max(w, h));
+  var c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(h * k));
+  var g = c.getContext("2d");
+  g.imageSmoothingQuality = "high";
+  g.drawImage(img, 0, 0, c.width, c.height);
+  var alpha = false;
+  if (!/^data:image\/jpe?g/i.test(url)){
+    var d = g.getImageData(0, 0, c.width, c.height).data;
+    for (var i = 3; i < d.length; i += 4) if (d[i] < 250){ alpha = true; break; }
+  }
+  var out = alpha ? c.toDataURL("image/png") : c.toDataURL("image/jpeg", 0.85);
+  if (out.length >= url.length) return {img: img, url: url};   // 小さくならなければ元のまま
+  var im = new Image(); im.src = out;
+  try { await im.decode(); } catch(e){}
+  return {img: im, url: out};
 }
 /* いま見ているページの、見えている範囲の真ん中に画像を置く。
    回転したページでもまっすぐ見えるよう、画像そのものをページの向きに合わせて回しておく。 */

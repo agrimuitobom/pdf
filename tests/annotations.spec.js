@@ -127,3 +127,36 @@ for (const kind of ["rect", "pen", "text"]) {
     expect(Math.abs(z.red.t - a.red.t)).toBeLessThan(0.01);
   });
 }
+
+test("スマホの写真のような大きな画像は、縮めてから埋め込む", async ({ page }) => {
+  await openApp(page);
+  await loadPdf(page, "src.pdf", 2);
+  // 4000×3000 の写真らしい画像（約3MB以上の JPEG）をページの中で作る
+  const b64 = await page.evaluate(async () => {
+    const c = document.createElement("canvas"); c.width = 4000; c.height = 3000;
+    const g = c.getContext("2d"), img = g.createImageData(4000, 3000);
+    for (let i = 0; i < img.data.length; i += 4) {
+      const v = (Math.random() * 120 + ((i / 16000) % 120)) | 0;
+      img.data[i] = v; img.data[i + 1] = 255 - v; img.data[i + 2] = (v * 3) & 255; img.data[i + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+    const blob = await new Promise((r) => c.toBlob(r, "image/jpeg", 0.95));
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let s = ""; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(s);
+  });
+  const photo = Buffer.from(b64, "base64");
+  expect(photo.length).toBeGreaterThan(3_000_000);
+  await page.setInputFiles("#imgIn", { name: "photo.jpg", mimeType: "image/jpeg", buffer: photo });
+  await expect(page.locator("#toast")).toContainText("画像を置きました");
+  const out = await exportPdf(page);
+  expect(out.length).toBeLessThan(photo.length / 2);
+});
+
+test("何も変えずに書き出すと、元のPDFとほぼ同じ大きさになる", async ({ page }) => {
+  const fs = require("fs");
+  await openApp(page);
+  await loadPdf(page, "ol3.pdf", 3);
+  const out = await exportPdf(page);
+  expect(out.length).toBeLessThan(fs.statSync(fixture("ol3.pdf")).size * 1.2);
+});
