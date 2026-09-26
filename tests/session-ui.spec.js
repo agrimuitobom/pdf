@@ -149,3 +149,18 @@ test.describe("スマートフォン", () => {
     expect(errors).toEqual([]);
   });
 });
+
+test("URLを貼ったときのカード表示（OGP）の設定と画像がある", async ({ page, request }) => {
+  await openApp(page);
+  const og = await page.evaluate(() =>
+    Object.fromEntries([...document.querySelectorAll('meta[property^="og:"],meta[name^="twitter:"]')]
+      .map((m) => [m.getAttribute("property") || m.getAttribute("name"), m.content])));
+  expect(og["twitter:card"]).toBe("summary_large_image");
+  expect(og["og:title"]).toContain("PDF工房");
+  expect(og["og:image"]).toMatch(/^https:\/\/.+\/og-image\.png$/);
+  // 画像そのものも公開されている（1200×630 の PNG）
+  const res = await request.get("/og-image.png");
+  expect(res.ok()).toBe(true);
+  const png = await res.body();
+  expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([1200, 630]);
+});
